@@ -1,0 +1,329 @@
+# Snowball SLR
+
+A terminal-based tool for conducting Systematic Literature Reviews (SLR) using the snowballing methodology.
+
+## Features
+
+- **Seed Paper Import**: Start from PDF files or DOIs
+- **Bidirectional Snowballing**: Discover papers through both backward (references) and forward (citations) snowballing
+- **Multiple API Integration**:
+  - Semantic Scholar (primary source for citations)
+  - OpenAlex (comprehensive scholarly data)
+  - CrossRef (DOI-based metadata)
+  - arXiv (preprints)
+- **Intelligent Filtering**: Auto-filter papers by date range, citation count, keywords, and venue quality
+- **Interactive TUI**: Rich terminal interface for reviewing papers
+- **PDF Parsing**: Extract metadata from PDFs using GROBID or Python fallback
+- **Export**: Generate BibTeX bibliographies and CSV spreadsheets
+- **JSON Storage**: Human-readable project files for easy version control
+
+## Installation
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd snowball
+
+# Install the package
+pip install -e .
+
+# Optional: Install GROBID support
+pip install -e ".[grobid]"
+```
+
+## Quick Start
+
+### 1. Initialize a Project
+
+```bash
+snowball init my-slr-project \
+  --name "Machine Learning in Healthcare" \
+  --description "SLR on ML applications in medical diagnosis" \
+  --max-iterations 2 \
+  --min-year 2015 \
+  --max-year 2024
+```
+
+### 2. Add Seed Papers
+
+From PDF files:
+```bash
+snowball add-seed my-slr-project \
+  --pdf seed1.pdf seed2.pdf \
+  --email your.email@domain.com
+```
+
+From DOIs:
+```bash
+snowball add-seed my-slr-project \
+  --doi "10.1234/example.doi" "10.5678/another.doi" \
+  --s2-api-key YOUR_SEMANTIC_SCHOLAR_KEY \
+  --email your.email@domain.com
+```
+
+### 3. Run Snowballing
+
+```bash
+snowball snowball my-slr-project \
+  --iterations 2 \
+  --email your.email@domain.com
+```
+
+This will:
+- Find all papers referenced by your seeds (backward)
+- Find all papers citing your seeds (forward)
+- Apply your configured filters
+- Save all discovered papers for review
+
+### 4. Review Papers
+
+Launch the interactive TUI:
+```bash
+snowball review my-slr-project
+```
+
+**TUI Controls:**
+- Arrow keys or mouse: Navigate papers
+- `r`: Review selected paper (include/exclude/maybe)
+- `s`: Run another snowball iteration
+- `e`: Export results
+- `q`: Quit
+
+### 5. Export Results
+
+```bash
+# Export included papers to BibTeX
+snowball export my-slr-project --format bibtex --included-only
+
+# Export all papers to CSV with full metadata
+snowball export my-slr-project --format csv
+
+# Export both formats
+snowball export my-slr-project --format all
+```
+
+## Workflow
+
+```
+┌─────────────────┐
+│  Seed Papers    │
+│  (PDF or DOI)   │
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────────────┐
+│  Snowball Iteration 0   │
+│  - Extract metadata     │
+│  - Enrich with APIs     │
+└────────┬────────────────┘
+         │
+         ▼
+┌─────────────────────────┐
+│  Snowball Iteration 1   │
+│  - Get references       │
+│  - Get citations        │
+│  - Apply filters        │
+└────────┬────────────────┘
+         │
+         ▼
+┌─────────────────────────┐
+│  Manual Review          │
+│  - Include/Exclude      │
+│  - Add notes            │
+└────────┬────────────────┘
+         │
+         ▼
+┌─────────────────────────┐
+│  Snowball Iteration 2   │
+│  - Continue from        │
+│    included papers      │
+└────────┬────────────────┘
+         │
+         ▼
+┌─────────────────────────┐
+│  Export Results         │
+│  - BibTeX bibliography  │
+│  - CSV spreadsheet      │
+└─────────────────────────┘
+```
+
+## Configuration
+
+### API Keys (Optional but Recommended)
+
+While most APIs work without keys, you'll get higher rate limits with authentication:
+
+**Semantic Scholar API Key:**
+1. Register at https://www.semanticscholar.org/product/api
+2. Use with `--s2-api-key` flag
+
+**Email for Polite Pools:**
+- CrossRef and OpenAlex offer faster service if you provide an email
+- Use with `--email` flag
+
+### GROBID (Optional)
+
+For best PDF parsing results, install GROBID:
+
+```bash
+# Using Docker
+docker run -p 8070:8070 lfoppiano/grobid:0.8.0
+
+# Or install manually following https://grobid.readthedocs.io/
+```
+
+If GROBID is not available, Snowball will automatically fall back to Python-based PDF parsing.
+
+### Filter Criteria
+
+Configure auto-filtering in the `init` command or edit `project.json`:
+
+```json
+{
+  "filter_criteria": {
+    "min_year": 2015,
+    "max_year": 2024,
+    "min_citations": 5,
+    "keywords": ["machine learning", "deep learning"],
+    "excluded_keywords": ["deprecated", "retracted"],
+    "venue_types": ["journal", "conference"]
+  }
+}
+```
+
+## Project Structure
+
+```
+my-slr-project/
+├── project.json              # Project metadata and configuration
+├── papers.json              # Index of all papers
+├── papers/                  # Individual paper JSON files
+│   ├── uuid1.json
+│   ├── uuid2.json
+│   └── ...
+├── included_papers.bib      # Exported BibTeX (after export)
+└── all_papers.csv          # Exported CSV (after export)
+```
+
+## Advanced Usage
+
+### Programmatic API
+
+```python
+from pathlib import Path
+from snowball.storage.json_storage import JSONStorage
+from snowball.apis.aggregator import APIAggregator
+from snowball.snowballing import SnowballEngine
+from snowball.models import ReviewProject, FilterCriteria
+
+# Set up
+storage = JSONStorage(Path("my-project"))
+api = APIAggregator(email="your@email.com")
+engine = SnowballEngine(storage, api)
+
+# Create project
+project = ReviewProject(
+    name="My Review",
+    max_iterations=2,
+    filter_criteria=FilterCriteria(min_year=2020)
+)
+storage.save_project(project)
+
+# Add seed from DOI
+paper = engine.add_seed_from_doi("10.1234/example", project)
+
+# Run snowballing
+stats = engine.run_snowball_iteration(project)
+print(f"Discovered {stats['added']} papers")
+
+# Review papers
+papers = engine.get_papers_for_review()
+for paper in papers:
+    print(f"Review: {paper.title}")
+    # ... make decision ...
+    engine.update_paper_review(
+        paper.id,
+        PaperStatus.INCLUDED,
+        "Relevant to my research"
+    )
+```
+
+### Custom Filters
+
+Modify `filter_criteria` to create sophisticated filters:
+
+```python
+from snowball.models import FilterCriteria
+
+criteria = FilterCriteria(
+    min_year=2018,
+    max_year=2024,
+    min_citations=10,
+    min_influential_citations=2,
+    keywords=["neural network", "transformer"],
+    excluded_keywords=["survey", "review"],
+    venue_types=["journal", "conference"]
+)
+```
+
+## Troubleshooting
+
+### PDF Parsing Issues
+
+If PDF metadata extraction fails:
+1. Try with GROBID if not already using it
+2. Use DOI instead: `--doi` rather than `--pdf`
+3. Check PDF is not scanned/image-based
+4. Manually add metadata by editing the paper JSON file
+
+### API Rate Limits
+
+If you hit rate limits:
+1. Use API keys (`--s2-api-key`)
+2. Provide email for polite pools (`--email`)
+3. Add delays between operations
+4. Process seeds in smaller batches
+
+### Missing Citations/References
+
+Some papers may not have citation data:
+- Very recent papers have fewer citations
+- Some venues aren't well-indexed
+- Try multiple APIs (aggregator tries all automatically)
+- Consider using different seed papers
+
+## Contributing
+
+Contributions welcome! Areas for improvement:
+- Additional API integrations
+- Enhanced PDF parsing
+- Better venue quality detection
+- Citation network visualization
+- Machine learning-based relevance scoring
+
+## License
+
+MIT License - see LICENSE file
+
+## Citation
+
+If you use Snowball in your research, please cite:
+
+```bibtex
+@software{snowball_slr,
+  title = {Snowball: A Tool for Systematic Literature Review},
+  author = {Your Name},
+  year = {2024},
+  url = {https://github.com/yourusername/snowball}
+}
+```
+
+## Acknowledgments
+
+Built with:
+- [Textual](https://textual.textualize.io/) - TUI framework
+- [Semantic Scholar API](https://www.semanticscholar.org/product/api)
+- [OpenAlex](https://openalex.org/)
+- [CrossRef](https://www.crossref.org/)
+- [arXiv](https://arxiv.org/)
+- [GROBID](https://github.com/kermitt2/grobid)
