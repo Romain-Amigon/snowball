@@ -82,12 +82,33 @@ Launch the interactive TUI:
 snowball review my-slr-project
 ```
 
-**TUI Controls:**
-- Arrow keys or mouse: Navigate papers
-- `r`: Review selected paper (include/exclude/maybe)
+The TUI features a clean, GitHub-inspired dark theme with a sortable table interface:
+
+**Navigation:**
+- `↑`/`↓` Arrow keys: Navigate papers (details appear automatically)
+- `Enter`: Toggle detail view on/off
+- Click column headers: Sort by that column (ascending → descending → default)
+
+**Quick Review (Tinder-style):**
+- `→` Right arrow or `i`: Include paper (and advance to next)
+- `←` Left arrow or `e`: Exclude paper (and advance to next)
+
+**Review Actions:**
+- `m`: Mark as Maybe
+- `p`: Mark as Pending
+- `n`: Add/edit notes
+- `o`: Open paper's DOI or arXiv URL in browser
+
+**Other Controls:**
 - `s`: Run another snowball iteration
-- `e`: Export results
+- `x`: Export results (BibTeX + CSV)
 - `q`: Quit
+
+**Features:**
+- Auto-advance to next paper after include/exclude
+- Sortable columns: Status, Title, Year, Citations, Source, Iteration
+- Expandable paper details with abstract, authors, and metadata
+- Real-time statistics panel showing included/excluded/pending counts
 
 ### 5. Export Results
 
