@@ -229,9 +229,13 @@ class TestGetSortKey:
         assert key == (0, "test paper title")
 
     def test_sort_key_title_none(self, paper_with_nones):
-        """Test sort key for empty title."""
+        """Test sort key for empty title.
+
+        The source code uses 'zzz' as a fallback for falsy titles to ensure
+        they sort to the end alphabetically.
+        """
         key = get_sort_key(paper_with_nones, "Title")
-        # Empty title treated as falsy and maps to "zzz" for sorting
+        # Empty title treated as falsy and maps to "zzz" for sorting to end
         assert key == (0, "zzz")
 
     def test_sort_key_year(self, paper):
