@@ -56,10 +56,10 @@ You can then run commands with `uv run <command>`, which automatically uses the 
 ```bash
 # Install pipx (if not already installed)
 python -m pip install --user pipx
-python -m pipx ensurepath
+pipx ensurepath
 
 # Install the package from the repository
-pipx install git+https://github.com/rjglasse/snowball.git
+pipx install git+<repo-url>
 
 # Or install from a local clone
 git clone <repo-url>
@@ -67,7 +67,7 @@ cd snowball
 pipx install .
 
 # Optional: Install with GROBID support
-pipx install "git+https://github.com/rjglasse/snowball.git[grobid]"
+pipx install "git+<repo-url>[grobid]"
 # Or from local: pipx install ".[grobid]"
 
 # Note: For development work with editable installs, use uv instead
