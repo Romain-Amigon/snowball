@@ -57,6 +57,8 @@ You can then run commands with `uv run <command>`, which automatically uses the 
 # Install pipx (if not already installed)
 python -m pip install --user pipx
 pipx ensurepath
+# Note: You may need to restart your terminal or run 'source ~/.bashrc' (Linux/Mac)
+# or 'source ~/.bash_profile' (Mac) for PATH changes to take effect
 
 # Install the package from the repository
 pipx install git+<repo-url>
