@@ -19,16 +19,57 @@ A terminal-based tool for conducting Systematic Literature Reviews (SLR) using t
 
 ## Installation
 
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver. It's the recommended way to work with this project for development:
+
+```bash
+# Install uv (if not already installed)
+pip install uv
+
+# Clone the repository
+git clone <repo-url>
+cd snowball
+
+# Sync dependencies and create virtual environment
+uv sync
+
+# Run the tool
+uv run snowball --help
+
+# Optional: Install with GROBID support
+uv sync --extra grobid
+
+# Optional: Install development dependencies (for testing/linting)
+uv sync --extra dev
+```
+
+The `uv sync` command will:
+- Create a `.venv` virtual environment in the project directory
+- Install all dependencies from the lockfile (`uv.lock`)
+- Install the `snowball` package in editable mode
+
+You can then run commands with `uv run <command>`, which automatically uses the virtual environment.
+
+### Using pip (Alternative)
+
 ```bash
 # Clone the repository
 git clone <repo-url>
 cd snowball
+
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install the package
 pip install -e .
 
 # Optional: Install GROBID support
 pip install -e ".[grobid]"
+
+# Optional: Install development dependencies
+pip install -e ".[dev]"
 ```
 
 ## Quick Start
@@ -351,6 +392,40 @@ Contributions welcome! Areas for improvement:
 - Better venue quality detection
 - Citation network visualization
 - Machine learning-based relevance scoring
+
+### Development Setup
+
+For development, we use `uv` for fast dependency management:
+
+```bash
+# Install uv
+pip install uv
+
+# Clone and set up the project
+git clone <repo-url>
+cd snowball
+
+# Install all dependencies including dev tools
+uv sync --extra dev
+
+# Run tests
+uv run pytest
+
+# Run linters
+uv run black .
+uv run ruff check .
+
+# Run the tool in development mode
+uv run snowball --help
+```
+
+The project uses:
+- **pytest** for testing
+- **black** for code formatting
+- **ruff** for linting
+- **uv** for dependency management
+
+All dependencies are locked in `uv.lock` for reproducible builds.
 
 ## License
 

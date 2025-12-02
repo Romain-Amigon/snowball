@@ -30,7 +30,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 grobid = [
-    "grobid-client-python>=0.8.0",
+    "grobid-client-python>=0.1.0",
 ]
 
 [project.scripts]
