@@ -240,7 +240,7 @@ class SnowballEngine:
         """Get references for a paper, preferring GROBID-extracted data over API.
 
         For papers parsed from PDF, we have the references already extracted by GROBID.
-        We create Paper objects directly from this data - no API lookup needed.
+        We create Paper objects from this data, then enrich with API metadata.
         Falls back to API if no GROBID references are stored.
 
         Args:
@@ -253,7 +253,7 @@ class SnowballEngine:
         grobid_refs = paper.raw_data.get("grobid_references", []) if paper.raw_data else []
 
         if grobid_refs:
-            logger.info(f"Using {len(grobid_refs)} GROBID-extracted references (no API needed)")
+            logger.info(f"Using {len(grobid_refs)} GROBID-extracted references")
             references = []
 
             for ref in grobid_refs:
@@ -283,6 +283,19 @@ class SnowballEngine:
                     references.append(ref_paper)
 
             logger.info(f"Created {len(references)} reference papers from GROBID data")
+
+            # Enrich references with API metadata (citations, abstracts, etc.)
+            logger.info("Enriching references with API metadata...")
+            enriched_count = 0
+            for ref_paper in references:
+                try:
+                    self.api.enrich_metadata(ref_paper)
+                    if ref_paper.citation_count is not None or ref_paper.abstract:
+                        enriched_count += 1
+                except Exception as e:
+                    logger.debug(f"Could not enrich {ref_paper.title[:50]}: {e}")
+
+            logger.info(f"Enriched {enriched_count}/{len(references)} references with API metadata")
             return references
 
         # Fall back to API if no GROBID references
