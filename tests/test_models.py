@@ -209,14 +209,12 @@ class TestReviewProject:
         project = ReviewProject(name="Test Project")
         assert project.name == "Test Project"
         assert project.description == ""
-        assert project.max_iterations == 1  # Default
         assert project.current_iteration == 0
 
     def test_create_project_full(self, sample_project):
         """Test creating project with all fields."""
         assert sample_project.name == "Test Project"
         assert sample_project.description == "A test systematic literature review project"
-        assert sample_project.max_iterations == 3
         assert sample_project.current_iteration == 1
         assert len(sample_project.seed_paper_ids) == 1
 
@@ -231,11 +229,11 @@ class TestReviewProject:
         data = sample_project.model_dump(mode='json')
         assert isinstance(data, dict)
         assert data["name"] == "Test Project"
-        assert data["max_iterations"] == 3
+        assert data["current_iteration"] == 1
 
     def test_project_deserialization(self, sample_project):
         """Test that project can be deserialized from dict."""
         data = sample_project.model_dump(mode='json')
         restored = ReviewProject.model_validate(data)
         assert restored.name == sample_project.name
-        assert restored.max_iterations == sample_project.max_iterations
+        assert restored.current_iteration == sample_project.current_iteration

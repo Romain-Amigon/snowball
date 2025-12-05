@@ -65,7 +65,6 @@ def init_project(args) -> None:
     project = ReviewProject(
         name=args.name or project_dir.name,
         description=args.description or "",
-        max_iterations=args.max_iterations or 1,
     )
 
     # Set up filters if provided
@@ -76,7 +75,6 @@ def init_project(args) -> None:
     storage.save_project(project)
 
     logger.info(f"Initialized project '{project.name}' in {project_dir}")
-    logger.info(f"Max iterations: {project.max_iterations}")
 
 
 def add_seed(args) -> None:
@@ -438,7 +436,6 @@ def show_stats(args) -> None:
         output = {
             "project_name": project.name,
             "current_iteration": project.current_iteration,
-            "max_iterations": project.max_iterations,
             "total_papers": stats["total"],
             "by_status": stats["by_status"],
             "by_iteration": stats["by_iteration"],
@@ -450,7 +447,7 @@ def show_stats(args) -> None:
         print(f"\n{'=' * 50}")
         print(f"Project: {project.name}")
         print(f"{'=' * 50}")
-        print(f"Current iteration: {project.current_iteration} / {project.max_iterations}")
+        print(f"Current iteration: {project.current_iteration}")
         print(f"Seed papers:       {len(project.seed_paper_ids)}")
         print(f"Total papers:      {stats['total']}")
         print()
@@ -481,9 +478,6 @@ def main():
     init_parser.add_argument("directory", help="Project directory")
     init_parser.add_argument("--name", help="Project name")
     init_parser.add_argument("--description", help="Project description")
-    init_parser.add_argument(
-        "--max-iterations", type=int, default=1, help="Maximum snowball iterations"
-    )
     init_parser.add_argument("--min-year", type=int, help="Minimum publication year")
     init_parser.add_argument("--max-year", type=int, help="Maximum publication year")
 

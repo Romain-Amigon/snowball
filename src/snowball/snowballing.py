@@ -378,10 +378,6 @@ class SnowballEngine:
         Returns:
             True if more iterations should be run
         """
-        # Check if max iterations reached
-        if project.current_iteration >= project.max_iterations:
-            return False
-
         # Check if there are papers to continue from
         if project.current_iteration == 0:
             return len(project.seed_paper_ids) > 0

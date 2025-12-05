@@ -26,12 +26,11 @@ class TestCLIHelpers:
         args.directory = str(project_dir)
         args.name = "Test Project"
         args.description = "Test description"
-        args.max_iterations = 2
         args.min_year = 2020
         args.max_year = 2024
-        
+
         init_project(args)
-        
+
         assert project_dir.exists()
         assert (project_dir / "project.json").exists()
 
@@ -39,30 +38,28 @@ class TestCLIHelpers:
         """Test init_project fails with existing non-empty directory."""
         # Create a file in the directory to make it non-empty
         (temp_dir / "existing_file.txt").write_text("content")
-        
+
         args = Mock()
         args.directory = str(temp_dir)
         args.name = "Test"
         args.description = ""
-        args.max_iterations = 1
         args.min_year = None
         args.max_year = None
-        
+
         with pytest.raises(SystemExit):
             init_project(args)
 
     def test_init_project_uses_defaults(self, temp_dir):
         """Test init_project uses defaults for optional parameters."""
         project_dir = temp_dir / "project"
-        
+
         args = Mock()
         args.directory = str(project_dir)
         args.name = None  # Should use directory name
         args.description = None
-        args.max_iterations = None
         args.min_year = None
         args.max_year = None
-        
+
         init_project(args)
         
         from snowball.storage.json_storage import JSONStorage

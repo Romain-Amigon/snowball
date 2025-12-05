@@ -103,7 +103,6 @@ class ReviewProject(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
 
     # Configuration
-    max_iterations: int = 1
     filter_criteria: FilterCriteria = Field(default_factory=FilterCriteria)
 
     # Seeds

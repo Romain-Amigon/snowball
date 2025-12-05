@@ -40,7 +40,6 @@ class TestSnowballEngine:
         """Create a sample project for testing."""
         return ReviewProject(
             name="Test Project",
-            max_iterations=3,
             filter_criteria=FilterCriteria(min_year=2020),
             current_iteration=0
         )
@@ -152,7 +151,6 @@ class TestSnowballEngineIteration:
         # Create and save project
         project = ReviewProject(
             name="Test",
-            max_iterations=2,
             filter_criteria=FilterCriteria(min_year=2020),
             seed_paper_ids=["seed-1"]
         )
@@ -336,36 +334,19 @@ class TestSnowballEngineHelpers:
         assert "doi:10.1234/test" in seen
         assert "title:test paper" in seen
 
-    def test_should_continue_snowballing_max_iterations(self, temp_project_dir):
-        """Test that snowballing stops at max iterations."""
-        storage = JSONStorage(temp_project_dir)
-        project = ReviewProject(
-            name="Test",
-            max_iterations=2,
-            current_iteration=2,
-            seed_paper_ids=["seed-1"]
-        )
-        storage.save_project(project)
-        
-        api = Mock(spec=APIAggregator)
-        engine = SnowballEngine(storage, api)
-        
-        assert engine.should_continue_snowballing(project) is False
-
     def test_should_continue_snowballing_no_seeds(self, temp_project_dir):
         """Test that snowballing stops with no seeds."""
         storage = JSONStorage(temp_project_dir)
         project = ReviewProject(
             name="Test",
-            max_iterations=2,
             current_iteration=0,
             seed_paper_ids=[]
         )
         storage.save_project(project)
-        
+
         api = Mock(spec=APIAggregator)
         engine = SnowballEngine(storage, api)
-        
+
         assert engine.should_continue_snowballing(project) is False
 
     def test_should_continue_snowballing_with_seeds(self, temp_project_dir):
@@ -373,15 +354,14 @@ class TestSnowballEngineHelpers:
         storage = JSONStorage(temp_project_dir)
         project = ReviewProject(
             name="Test",
-            max_iterations=2,
             current_iteration=0,
             seed_paper_ids=["seed-1"]
         )
         storage.save_project(project)
-        
+
         api = Mock(spec=APIAggregator)
         engine = SnowballEngine(storage, api)
-        
+
         assert engine.should_continue_snowballing(project) is True
 
 

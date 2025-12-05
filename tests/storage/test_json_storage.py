@@ -36,7 +36,7 @@ class TestJSONStorage:
         assert loaded is not None
         assert loaded.name == sample_project.name
         assert loaded.description == sample_project.description
-        assert loaded.max_iterations == sample_project.max_iterations
+        assert loaded.current_iteration == sample_project.current_iteration
 
     def test_load_project_not_found(self, storage):
         """Test loading project when none exists."""

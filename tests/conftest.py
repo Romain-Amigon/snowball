@@ -157,7 +157,6 @@ def sample_project():
     return ReviewProject(
         name="Test Project",
         description="A test systematic literature review project",
-        max_iterations=3,
         filter_criteria=FilterCriteria(min_year=2020),
         seed_paper_ids=["paper-1"],
         total_papers=4,

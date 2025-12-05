@@ -83,7 +83,6 @@ pipx install "git+<repo-url>[grobid]"
 snowball init my-slr-project \
   --name "Machine Learning in Healthcare" \
   --description "SLR on ML applications in medical diagnosis" \
-  --max-iterations 2 \
   --min-year 2015 \
   --max-year 2024
 ```
@@ -355,7 +354,6 @@ engine = SnowballEngine(storage, api)
 # Create project
 project = ReviewProject(
     name="My Review",
-    max_iterations=2,
     filter_criteria=FilterCriteria(min_year=2020)
 )
 storage.save_project(project)
