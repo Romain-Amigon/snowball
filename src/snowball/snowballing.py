@@ -265,19 +265,23 @@ class SnowballEngine:
 
             for ref in grobid_refs:
                 if isinstance(ref, dict):
-                    # Extract title from raw text (text after year, before first period)
-                    title = ref.get("raw", "Unknown reference")[:200]
-                    if ref.get("year") and ref.get("raw"):
+                    # Use title from GROBID if available, otherwise try raw text
+                    title = ref.get("title")
+                    if not title and ref.get("raw"):
+                        # Extract title from raw text (text after year, before first period)
                         raw = ref["raw"]
-                        year_str = str(ref["year"])
-                        if year_str in raw:
-                            parts = raw.split(year_str, 1)
-                            if len(parts) > 1:
-                                title_part = parts[1].strip(". ")
-                                if ". " in title_part:
-                                    title_part = title_part.split(". ")[0]
-                                if len(title_part) > 10:
-                                    title = title_part
+                        if ref.get("year"):
+                            year_str = str(ref["year"])
+                            if year_str in raw:
+                                parts = raw.split(year_str, 1)
+                                if len(parts) > 1:
+                                    title_part = parts[1].strip(". ")
+                                    if ". " in title_part:
+                                        title_part = title_part.split(". ")[0]
+                                    if len(title_part) > 10:
+                                        title = title_part
+                    if not title:
+                        title = ref.get("raw", "Unknown reference")[:200]
 
                     ref_paper = Paper(
                         id=JSONStorage.generate_id(),
@@ -285,7 +289,7 @@ class SnowballEngine:
                         doi=ref.get("doi"),
                         year=ref.get("year"),
                         source=PaperSource.BACKWARD,
-                        raw_data={"grobid_raw": ref.get("raw")}
+                        raw_data={"grobid_ref": ref}
                     )
                     references.append(ref_paper)
 
