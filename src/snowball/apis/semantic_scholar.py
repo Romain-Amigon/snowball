@@ -40,14 +40,14 @@ class SemanticScholarClient(BaseAPIClient):
 
         Args:
             api_key: Optional API key for authenticated access
-            rate_limit_delay: Delay between requests in seconds. Defaults to 1.0s.
+            rate_limit_delay: Delay between requests in seconds. Defaults to 2.0s.
         """
         self.api_key = api_key
-        # S2 rate limits: 1 req/sec with API key
+        # S2 rate limits: be conservative to avoid 429 errors
         if rate_limit_delay is not None:
             self.rate_limit_delay = rate_limit_delay
         else:
-            self.rate_limit_delay = 1.0   # 1 req/sec
+            self.rate_limit_delay = 2.0   # 2 seconds between requests
         self.client = httpx.Client(timeout=30.0)
 
         if api_key:
