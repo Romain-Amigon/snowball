@@ -8,12 +8,12 @@ from typing import Dict, List, Optional, Union
 from .models import Paper, PaperStatus, PaperSource
 
 
-# Status ordering for sorting
+# Status ordering for sorting (pending first for review workflow)
 STATUS_ORDER: Dict[str, int] = {
     "pending": 0,
-    "included": 1,
-    "excluded": 2,
-    "maybe": 3,
+    "maybe": 1,
+    "included": 2,
+    "excluded": 3,
 }
 
 # Source ordering for sorting

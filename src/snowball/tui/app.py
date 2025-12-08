@@ -261,10 +261,10 @@ class SnowballApp(App):
         self.project = project
         self.current_paper: Optional[Paper] = None
 
-        # Sort state tracking
-        self.sort_column: str = "Citations"
-        self.sort_ascending: bool = False  # False = descending (highest first)
-        self.sort_cycle_position: int = 1  # 0=asc, 1=desc, 2=default
+        # Sort state tracking (default: Status ascending for review workflow)
+        self.sort_column: str = "Status"
+        self.sort_ascending: bool = True  # True = ascending (pending first)
+        self.sort_cycle_position: int = 0  # 0=asc, 1=desc, 2=default
 
         # Filter state: None = all, or PaperStatus value
         self.filter_status: Optional[PaperStatus] = None
@@ -480,10 +480,10 @@ class SnowballApp(App):
                 # Second click: descending
                 self.sort_ascending = False
             else:
-                # Third click: reset to default (Citations descending)
-                self.sort_column = "Citations"
-                self.sort_ascending = False
-                self.sort_cycle_position = 1
+                # Third click: reset to default (Status ascending)
+                self.sort_column = "Status"
+                self.sort_ascending = True
+                self.sort_cycle_position = 0
         else:
             # Different column clicked - start fresh at ascending
             self.sort_column = clicked_column
@@ -494,11 +494,11 @@ class SnowballApp(App):
         self._refresh_table()
 
     def _update_paper_status(self, status: PaperStatus) -> None:
-        """Update the status of the currently selected paper and move to next."""
+        """Update the status of the currently selected paper and stay on next."""
         if not self.current_paper:
             return
 
-        # Get the current table and find next paper
+        # Get the current table position
         table = self.query_one("#papers-table", DataTable)
         current_row_index = table.cursor_row
 
@@ -513,12 +513,13 @@ class SnowballApp(App):
         # Refresh the table to show updated status
         self._refresh_table()
 
-        # Move to the next paper (or stay at current if at end)
+        # Stay at same row position - the judged paper moves away due to sort,
+        # so the "next" paper naturally slides into current position
         table = self.query_one("#papers-table", DataTable)
         if table.row_count > 0:
-            # Move to next row, or stay at last if we're at the end
-            next_row = min(current_row_index + 1, table.row_count - 1)
-            table.move_cursor(row=next_row)
+            # Stay at current position, or last row if we're beyond the end
+            target_row = min(current_row_index, table.row_count - 1)
+            table.move_cursor(row=target_row)
 
             # The move_cursor will trigger on_data_table_row_highlighted
             # which will show the details automatically
