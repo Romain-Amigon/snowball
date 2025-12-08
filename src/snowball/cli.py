@@ -106,6 +106,10 @@ def add_seed(args) -> None:
     added_count = 0
 
     if args.pdf:
+        import shutil
+        pdfs_dir = project_dir / "pdfs"
+        pdfs_dir.mkdir(exist_ok=True)
+
         for pdf_path in args.pdf:
             pdf_file = Path(pdf_path)
             if not pdf_file.exists():
@@ -114,7 +118,13 @@ def add_seed(args) -> None:
 
             paper = engine.add_seed_from_pdf(pdf_file, project)
             if paper:
+                # Copy PDF to project's pdfs folder
+                dest_pdf = pdfs_dir / f"{paper.id}.pdf"
+                shutil.copy2(pdf_file, dest_pdf)
+                paper.pdf_path = str(dest_pdf)
+                storage.save_paper(paper)
                 logger.info(f"Added seed: {paper.title}")
+                logger.info(f"  PDF copied to: {dest_pdf}")
                 added_count += 1
 
     if args.doi:
