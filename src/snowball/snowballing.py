@@ -307,18 +307,8 @@ class SnowballEngine:
 
             logger.info(f"Created {len(references)} reference papers from GROBID data")
 
-            # Enrich references with API metadata (citations, abstracts, etc.)
-            logger.info("Enriching references with API metadata...")
-            enriched_count = 0
-            for ref_paper in references:
-                try:
-                    self.api.enrich_metadata(ref_paper)
-                    if ref_paper.citation_count is not None or ref_paper.abstract:
-                        enriched_count += 1
-                except Exception as e:
-                    logger.debug(f"Could not enrich {ref_paper.title[:50]}: {e}")
-
-            logger.info(f"Enriched {enriched_count}/{len(references)} references with API metadata")
+            # Note: We no longer auto-enrich references to save API calls.
+            # Users can manually enrich papers of interest with 'e' in the TUI.
             return references
 
         # Fall back to API if no GROBID references
