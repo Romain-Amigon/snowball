@@ -1,13 +1,15 @@
 """API aggregator that combines multiple academic APIs."""
 
 import logging
+import uuid
 from typing import Optional, List, Dict
-from ..models import Paper
+from ..models import Paper, PaperSource, Author
 
 from .semantic_scholar import SemanticScholarClient
 from .crossref import CrossRefClient
 from .openalex import OpenAlexClient
 from .arxiv import ArXivClient
+from .google_scholar import GoogleScholarClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ class APIAggregator:
             use_apis: List of APIs to use (default: all)
         """
         if use_apis is None:
-            use_apis = ["semantic_scholar", "crossref", "openalex", "arxiv"]
+            use_apis = ["semantic_scholar", "crossref", "openalex", "arxiv", "google_scholar"]
 
         self.clients = {}
 
@@ -49,6 +51,10 @@ class APIAggregator:
         if "arxiv" in use_apis:
             self.clients["arxiv"] = ArXivClient()
             logger.info("Initialized arXiv client")
+
+        if "google_scholar" in use_apis:
+            self.clients["google_scholar"] = GoogleScholarClient()
+            logger.info("Initialized Google Scholar client")
 
     def search_by_doi(self, doi: str) -> Optional[Paper]:
         """Search for a paper by DOI across all APIs.
@@ -125,7 +131,7 @@ class APIAggregator:
     def get_citations(self, paper: Paper, limit: int = 1000) -> List[Paper]:
         """Get citations for a paper using the best available API.
 
-        Prefers Semantic Scholar, then OpenAlex.
+        Prefers Semantic Scholar, then OpenAlex, then Google Scholar.
         """
         citations = []
 
@@ -153,8 +159,49 @@ class APIAggregator:
             except Exception as e:
                 logger.warning(f"Error getting OpenAlex citations: {e}")
 
+        # Try Google Scholar as fallback (slower, rate-limited)
+        if "google_scholar" in self.clients and paper.title:
+            try:
+                # Google Scholar returns dicts, convert to Paper objects
+                gs_limit = min(limit, 50)  # Limit GS to 50 due to rate limiting
+                gs_citations = self.clients["google_scholar"].get_citations(
+                    paper.title, gs_limit
+                )
+                if gs_citations:
+                    citations = self._convert_gs_citations_to_papers(gs_citations)
+                    logger.info(f"Found {len(citations)} citations using Google Scholar")
+                    return citations
+            except Exception as e:
+                logger.warning(f"Error getting Google Scholar citations: {e}")
+
         logger.warning(f"Could not find citations for paper: {paper.title}")
         return []
+
+    def _convert_gs_citations_to_papers(self, gs_citations: List[dict]) -> List[Paper]:
+        """Convert Google Scholar citation dicts to Paper objects."""
+        papers = []
+        for cit in gs_citations:
+            if not cit.get("title"):
+                continue
+
+            # Convert authors list to Author objects
+            authors = []
+            for author_name in cit.get("authors", []):
+                if author_name:
+                    authors.append(Author(name=author_name.strip()))
+
+            paper = Paper(
+                id=str(uuid.uuid4()),
+                title=cit["title"],
+                year=cit.get("year"),
+                authors=authors,
+                citation_count=cit.get("num_citations"),
+                source=PaperSource.FORWARD,
+                raw_data={"google_scholar": cit}
+            )
+            papers.append(paper)
+
+        return papers
 
     def enrich_metadata(self, paper: Paper) -> Paper:
         """Enrich paper metadata using all available APIs."""

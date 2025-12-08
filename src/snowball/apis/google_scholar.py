@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
@@ -138,3 +138,75 @@ class GoogleScholarClient:
         similarity = intersection / union if union > 0 else 0
 
         return similarity >= threshold
+
+    def get_citations(self, title: str, limit: int = 50) -> List[dict]:
+        """Get papers that cite a given paper (forward citations).
+
+        Args:
+            title: Paper title to search for
+            limit: Maximum number of citing papers to return
+
+        Returns:
+            List of dicts with citing paper metadata (title, year, authors, etc.)
+        """
+        try:
+            self._rate_limit()
+            scholarly = self._get_scholarly()
+
+            # First find the paper
+            search_query = scholarly.search_pubs(title)
+            pub = next(search_query, None)
+
+            if not pub:
+                logger.debug(f"No Google Scholar match for: {title[:50]}")
+                return []
+
+            found_title = pub.get("bib", {}).get("title", "").lower()
+            if not self._titles_match(title.lower(), found_title):
+                logger.debug(f"Title mismatch: '{title[:30]}' vs '{found_title[:30]}'")
+                return []
+
+            num_citations = pub.get("num_citations", 0)
+            if not num_citations:
+                logger.debug(f"No citations for: {title[:50]}")
+                return []
+
+            logger.info(f"Google Scholar: Found {num_citations} citations for '{title[:50]}...'")
+
+            # Get citing papers
+            citations = []
+            try:
+                self._rate_limit()
+                citedby = scholarly.citedby(pub)
+
+                for i, citing_pub in enumerate(citedby):
+                    if i >= limit:
+                        break
+
+                    self._rate_limit()
+                    bib = citing_pub.get("bib", {})
+
+                    citation = {
+                        "title": bib.get("title"),
+                        "year": int(bib.get("pub_year")) if bib.get("pub_year") else None,
+                        "authors": bib.get("author", "").split(" and ") if bib.get("author") else [],
+                        "venue": bib.get("venue"),
+                        "url": citing_pub.get("pub_url"),
+                        "num_citations": citing_pub.get("num_citations"),
+                    }
+
+                    if citation["title"]:
+                        citations.append(citation)
+                        logger.debug(f"  Citation {i+1}: {citation['title'][:50]}...")
+
+            except Exception as e:
+                logger.warning(f"Error fetching citing papers: {e}")
+
+            logger.info(f"Google Scholar: Retrieved {len(citations)} citing papers")
+            return citations
+
+        except StopIteration:
+            return []
+        except Exception as e:
+            logger.warning(f"Google Scholar citation error for '{title[:50]}': {e}")
+            return []
