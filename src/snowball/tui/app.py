@@ -221,17 +221,29 @@ class SnowballApp(App):
     """
 
     BINDINGS = [
-        Binding("q", "quit", "Quit"),
+        # Navigation (show=False as these are standard)
+        Binding("up", "cursor_up", "Move up", show=False),
+        Binding("down", "cursor_down", "Move down", show=False),
+        Binding("enter", "select_cursor", "Toggle details", show=False),
+        Binding("space", "select_cursor", "Toggle details", show=False),
+        # Review actions (shown in footer)
         Binding("i", "include", "Include"),
-        Binding("right", "include", "→ Include", show=False),
+        Binding("right", "include", "Include (arrow)", show=False),
         Binding("e", "exclude", "Exclude"),
-        Binding("left", "exclude", "← Exclude", show=False),
+        Binding("left", "exclude", "Exclude (arrow)", show=False),
         Binding("m", "maybe", "Maybe"),
         Binding("p", "pending", "Pending"),
         Binding("n", "notes", "Notes"),
-        Binding("o", "open", "Open"),
-        Binding("s", "snowball", "Snowball"),
+        # Paper actions
+        Binding("o", "open", "Open DOI/arXiv"),
+        Binding("d", "toggle_details", "Toggle details"),
+        # Project actions
+        Binding("s", "snowball", "Run snowball"),
         Binding("x", "export", "Export"),
+        Binding("f", "filter", "Filter papers"),
+        # App actions
+        Binding("question_mark", "help", "Show help"),
+        Binding("q", "quit", "Quit"),
     ]
 
     def __init__(
@@ -575,6 +587,63 @@ class SnowballApp(App):
         """Open filter dialog."""
         # Placeholder for filter dialog
         pass
+
+    def action_toggle_details(self) -> None:
+        """Toggle the details panel for the current paper."""
+        if not self.current_paper:
+            return
+
+        detail_section = self.query_one("#detail-section")
+        if detail_section.has_class("hidden"):
+            # Show details
+            detail_section.remove_class("hidden")
+            detail_section.styles.height = "auto"
+            detail_section.styles.max_height = 25
+        else:
+            # Hide details
+            detail_section.add_class("hidden")
+            detail_section.styles.height = 0
+
+    def action_help(self) -> None:
+        """Show help with all keybindings."""
+        help_text = """
+[bold cyan]Snowball Review - Keyboard Shortcuts[/bold cyan]
+
+[bold]Navigation:[/bold]
+  ↑/↓         Move between papers
+  Enter/Space Toggle paper details
+  d           Toggle details panel
+
+[bold]Review Actions:[/bold]
+  i / →       Include paper (moves to next)
+  e / ←       Exclude paper (moves to next)
+  m           Mark as Maybe
+  p           Mark as Pending
+  n           Add/edit notes
+
+[bold]Paper Actions:[/bold]
+  o           Open DOI/arXiv in browser
+
+[bold]Table:[/bold]
+  Click header Sort by column (cycles: asc → desc → default)
+
+[bold]Project Actions:[/bold]
+  s           Run snowball iteration
+  x           Export papers (BibTeX + CSV)
+  f           Filter papers (coming soon)
+
+[bold]Other:[/bold]
+  Ctrl+P      Command palette
+  ?           Show this help
+  q           Quit
+
+Press any key to close this help.
+"""
+        from textual.widgets import Static
+        from textual.containers import Container
+
+        # Simple notification-style help
+        self.notify(help_text, title="Help", timeout=30)
 
 
 def run_tui(
