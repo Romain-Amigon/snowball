@@ -237,6 +237,7 @@ class SnowballApp(App):
         # Paper actions
         Binding("o", "open", "Open DOI/arXiv"),
         Binding("d", "toggle_details", "Toggle details"),
+        Binding("r", "repair", "Repair/enrich metadata"),
         # Project actions
         Binding("s", "snowball", "Run snowball"),
         Binding("x", "export", "Export"),
@@ -604,6 +605,52 @@ class SnowballApp(App):
             detail_section.add_class("hidden")
             detail_section.styles.height = 0
 
+    def action_repair(self) -> None:
+        """Repair/enrich the current paper's metadata from APIs."""
+        if not self.current_paper:
+            self.notify("No paper selected", severity="warning")
+            return
+
+        paper = self.current_paper
+
+        # Track what was missing before
+        had_abstract = bool(paper.abstract)
+        had_year = paper.year is not None
+        had_citations = paper.citation_count is not None
+        had_doi = bool(paper.doi)
+
+        self.notify(f"Enriching: {paper.title[:50]}...", title="Repairing")
+
+        try:
+            # Re-enrich from APIs
+            self.engine.api.enrich_metadata(paper)
+
+            # Save the updated paper
+            self.storage.save_paper(paper)
+
+            # Build report of what was added
+            updates = []
+            if not had_abstract and paper.abstract:
+                updates.append("abstract")
+            if not had_year and paper.year:
+                updates.append("year")
+            if not had_citations and paper.citation_count is not None:
+                updates.append("citations")
+            if not had_doi and paper.doi:
+                updates.append("DOI")
+
+            if updates:
+                self.notify(f"Added: {', '.join(updates)}", title="Repair complete", severity="information")
+            else:
+                self.notify("No new metadata found", title="Repair complete", severity="warning")
+
+            # Refresh display
+            self._show_paper_details(paper)
+            self._refresh_table()
+
+        except Exception as e:
+            self.notify(f"Repair failed: {e}", title="Error", severity="error")
+
     def action_help(self) -> None:
         """Show help with all keybindings."""
         help_text = """
@@ -623,6 +670,7 @@ class SnowballApp(App):
 
 [bold]Paper Actions:[/bold]
   o           Open DOI/arXiv in browser
+  r           Repair/enrich metadata from APIs
 
 [bold]Table:[/bold]
   Click header Sort by column (cycles: asc → desc → default)
