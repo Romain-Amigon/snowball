@@ -21,6 +21,12 @@ class PaperSource(str, Enum):
     FORWARD = "forward"    # Found in citations
 
 
+class ExclusionType(str, Enum):
+    """How a paper was excluded."""
+    AUTO = "auto"      # Excluded by filter criteria
+    MANUAL = "manual"  # Excluded by reviewer
+
+
 class Author(BaseModel):
     """Author information."""
     name: str
@@ -67,6 +73,7 @@ class Paper(BaseModel):
     source: PaperSource
     source_paper_id: Optional[str] = Field(None, description="ID of paper that led to this discovery")
     snowball_iteration: int = Field(0, description="Iteration when discovered (0 for seeds)")
+    exclusion_type: Optional[ExclusionType] = Field(None, description="How paper was excluded (auto/manual)")
 
     # Review notes
     notes: str = ""
@@ -95,6 +102,25 @@ class FilterCriteria(BaseModel):
     min_influential_citations: Optional[int] = None
 
 
+class IterationStats(BaseModel):
+    """Statistics for a single snowball iteration."""
+    iteration: int
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+    # Discovery stats (set during snowball)
+    discovered: int = 0
+    backward: int = 0
+    forward: int = 0
+    auto_excluded: int = 0
+    for_review: int = 0
+
+    # Review stats (updated as papers are reviewed)
+    manual_included: int = 0
+    manual_excluded: int = 0
+    manual_maybe: int = 0
+    reviewed: int = 0  # Total papers reviewed in this iteration
+
+
 class ReviewProject(BaseModel):
     """Represents an SLR project."""
     name: str
@@ -112,6 +138,9 @@ class ReviewProject(BaseModel):
     total_papers: int = 0
     papers_by_status: Dict[str, int] = Field(default_factory=dict)
     current_iteration: int = 0
+
+    # Iteration-level statistics for accountability
+    iteration_stats: Dict[int, IterationStats] = Field(default_factory=dict)
 
     class Config:
         use_enum_values = True

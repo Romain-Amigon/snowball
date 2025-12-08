@@ -145,9 +145,25 @@ def run_snowball(args) -> None:
     api = APIAggregator(s2_api_key=s2_api_key, email=email)
     engine = SnowballEngine(storage, api)
 
+    # Check if we can start (unless --force is used)
+    force = getattr(args, 'force', False)
+    if not force:
+        can_start, reason = engine.can_start_iteration(project)
+        if not can_start:
+            logger.error(reason)
+            logger.info("Use --force to bypass this check (not recommended)")
+            sys.exit(1)
+
     # Run iterations
     iteration_count = 0
     while engine.should_continue_snowballing(project):
+        # Check before each iteration (unless forcing)
+        if not force and iteration_count > 0:
+            can_start, reason = engine.can_start_iteration(project)
+            if not can_start:
+                logger.warning(reason)
+                break
+
         logger.info(f"\nRunning snowball iteration {project.current_iteration + 1}...")
 
         stats = engine.run_snowball_iteration(project, direction=args.direction)
@@ -415,7 +431,8 @@ def show_stats(args) -> None:
     """Show project statistics (non-interactive).
 
     This command provides a non-interactive way to view statistics,
-    suitable for AI agents and scripted workflows.
+    suitable for AI agents and scripted workflows. Includes detailed
+    iteration stats for accountability.
     """
     project_dir = Path(args.directory)
 
@@ -432,6 +449,21 @@ def show_stats(args) -> None:
 
     stats = storage.get_statistics()
 
+    # Build iteration stats for output
+    iteration_details = {}
+    for iter_num, iter_stats in project.iteration_stats.items():
+        iteration_details[str(iter_num)] = {
+            "discovered": iter_stats.discovered,
+            "backward": iter_stats.backward,
+            "forward": iter_stats.forward,
+            "auto_excluded": iter_stats.auto_excluded,
+            "for_review": iter_stats.for_review,
+            "manual_included": iter_stats.manual_included,
+            "manual_excluded": iter_stats.manual_excluded,
+            "manual_maybe": iter_stats.manual_maybe,
+            "reviewed": iter_stats.reviewed,
+        }
+
     if args.format == "json":
         output = {
             "project_name": project.name,
@@ -441,23 +473,48 @@ def show_stats(args) -> None:
             "by_iteration": stats["by_iteration"],
             "by_source": stats["by_source"],
             "seed_count": len(project.seed_paper_ids),
+            "iteration_stats": iteration_details,
         }
         print(json.dumps(output, indent=2))
     else:
-        print(f"\n{'=' * 50}")
+        print(f"\n{'=' * 60}")
         print(f"Project: {project.name}")
-        print(f"{'=' * 50}")
+        print(f"{'=' * 60}")
         print(f"Current iteration: {project.current_iteration}")
         print(f"Seed papers:       {len(project.seed_paper_ids)}")
         print(f"Total papers:      {stats['total']}")
         print()
-        print("By Status:")
+
+        # Overall status summary
+        print("Overall Status:")
         for status, count in stats["by_status"].items():
             print(f"  {status}: {count}")
         print()
-        print("By Iteration:")
-        for iteration, count in sorted(stats["by_iteration"].items(), key=lambda x: int(x[0])):
-            print(f"  Iteration {iteration}: {count}")
+
+        # Detailed iteration stats for accountability
+        print("Iteration Details:")
+        print("-" * 60)
+
+        # Iteration 0 (seeds)
+        seed_count = len(project.seed_paper_ids)
+        if seed_count > 0:
+            print(f"  Iteration 0 (seeds): {seed_count} papers")
+
+        # Other iterations with full stats
+        for iter_num in sorted(project.iteration_stats.keys()):
+            iter_stats = project.iteration_stats[iter_num]
+            print(f"\n  Iteration {iter_num}:")
+            print(f"    Discovered:     {iter_stats.discovered} papers")
+            print(f"      ├─ Backward:  {iter_stats.backward}")
+            print(f"      └─ Forward:   {iter_stats.forward}")
+            print(f"    Auto-excluded:  {iter_stats.auto_excluded}")
+            print(f"    For review:     {iter_stats.for_review}")
+            print(f"    Review progress:")
+            print(f"      ├─ Reviewed:  {iter_stats.reviewed}/{iter_stats.for_review}")
+            print(f"      ├─ Included:  {iter_stats.manual_included}")
+            print(f"      ├─ Excluded:  {iter_stats.manual_excluded}")
+            print(f"      └─ Maybe:     {iter_stats.manual_maybe}")
+
         print()
         print("By Source:")
         for source, count in stats["by_source"].items():
@@ -550,6 +607,11 @@ def main():
     )
     snowball_parser.add_argument("--s2-api-key", help="Semantic Scholar API key")
     snowball_parser.add_argument("--email", help="Email for API polite pools")
+    snowball_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force iteration even if there are unreviewed papers (not recommended)",
+    )
 
     # Review command
     review_parser = subparsers.add_parser("review", help="Launch interactive review interface")

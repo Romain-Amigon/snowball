@@ -465,9 +465,12 @@ class SnowballApp(App):
         table = self.query_one("#papers-table", DataTable)
         current_row_index = table.cursor_row
 
-        # Update the paper status
+        # Update the paper status (pass project for iteration stats tracking)
         self.engine.update_paper_review(
-            self.current_paper.id, status, self.current_paper.notes  # Keep existing notes
+            self.current_paper.id,
+            status,
+            self.current_paper.notes,  # Keep existing notes
+            project=self.project
         )
 
         # Refresh the table to show updated status

@@ -3,7 +3,7 @@
 import logging
 from pathlib import Path
 from typing import List, Optional, Set
-from .models import Paper, PaperSource, PaperStatus, ReviewProject
+from .models import Paper, PaperSource, PaperStatus, ReviewProject, ExclusionType, IterationStats
 from .storage.json_storage import JSONStorage
 from .apis.aggregator import APIAggregator
 from .parsers.pdf_parser import PDFParser
@@ -226,10 +226,22 @@ class SnowballEngine:
         for paper in discovered_papers:
             if paper not in filtered_papers:
                 paper.status = PaperStatus.EXCLUDED
+                paper.exclusion_type = ExclusionType.AUTO
                 paper.notes = "Auto-excluded by filters"
 
         # Save all discovered papers
         self.storage.save_papers(discovered_papers)
+
+        # Create and save iteration stats
+        iter_stats = IterationStats(
+            iteration=next_iter,
+            discovered=len(discovered_papers),
+            backward=backward_count,
+            forward=forward_count,
+            auto_excluded=auto_excluded,
+            for_review=len(filtered_papers),
+        )
+        project.iteration_stats[next_iter] = iter_stats
 
         # Update project
         project.current_iteration = next_iter
@@ -350,7 +362,8 @@ class SnowballEngine:
         paper_id: str,
         status: PaperStatus,
         notes: str = "",
-        tags: Optional[List[str]] = None
+        tags: Optional[List[str]] = None,
+        project: Optional[ReviewProject] = None
     ) -> None:
         """Update a paper's review status.
 
@@ -359,15 +372,76 @@ class SnowballEngine:
             status: New status
             notes: Review notes
             tags: Tags to add
+            project: Project to update iteration stats (optional)
         """
         paper = self.storage.load_paper(paper_id)
         if paper:
+            old_status = paper.status
             paper.status = status
             paper.notes = notes
             if tags:
                 paper.tags = tags
+
+            # Track manual exclusions (only if changing from non-excluded to excluded)
+            if status == PaperStatus.EXCLUDED and paper.exclusion_type != ExclusionType.AUTO:
+                paper.exclusion_type = ExclusionType.MANUAL
+
+            # Clear exclusion_type if un-excluding
+            if status != PaperStatus.EXCLUDED:
+                paper.exclusion_type = None
+
             self.storage.save_paper(paper)
             logger.info(f"Updated paper {paper.title}: {status}")
+
+            # Update iteration stats if project provided
+            if project and paper.snowball_iteration in project.iteration_stats:
+                self._update_iteration_review_stats(project, paper, old_status, status)
+                self.storage.save_project(project)
+
+    def _update_iteration_review_stats(
+        self,
+        project: ReviewProject,
+        paper: Paper,
+        old_status: PaperStatus,
+        new_status: PaperStatus
+    ) -> None:
+        """Update iteration stats when a paper's review status changes.
+
+        Args:
+            project: Project containing iteration stats
+            paper: Paper being reviewed
+            old_status: Previous status
+            new_status: New status
+        """
+        iteration = paper.snowball_iteration
+        if iteration not in project.iteration_stats:
+            return
+
+        stats = project.iteration_stats[iteration]
+
+        # Decrement old status counter (if it was a review status)
+        if old_status == PaperStatus.INCLUDED:
+            stats.manual_included = max(0, stats.manual_included - 1)
+        elif old_status == PaperStatus.EXCLUDED and paper.exclusion_type == ExclusionType.MANUAL:
+            stats.manual_excluded = max(0, stats.manual_excluded - 1)
+        elif old_status == PaperStatus.MAYBE:
+            stats.manual_maybe = max(0, stats.manual_maybe - 1)
+
+        # Increment new status counter
+        if new_status == PaperStatus.INCLUDED:
+            stats.manual_included += 1
+        elif new_status == PaperStatus.EXCLUDED:
+            # Only count as manual if not auto-excluded
+            if paper.exclusion_type != ExclusionType.AUTO:
+                stats.manual_excluded += 1
+        elif new_status == PaperStatus.MAYBE:
+            stats.manual_maybe += 1
+
+        # Update reviewed count (transition from pending to reviewed)
+        if old_status == PaperStatus.PENDING and new_status != PaperStatus.PENDING:
+            stats.reviewed += 1
+        elif old_status != PaperStatus.PENDING and new_status == PaperStatus.PENDING:
+            stats.reviewed = max(0, stats.reviewed - 1)
 
     def should_continue_snowballing(self, project: ReviewProject) -> bool:
         """Check if snowballing should continue.
@@ -387,6 +461,53 @@ class SnowballEngine:
                 if p.status == PaperStatus.INCLUDED
             ]
             return len(included_papers) > 0
+
+    def get_unreviewed_papers(self, project: ReviewProject) -> List[Paper]:
+        """Get papers that haven't been fully reviewed (pending or maybe).
+
+        Args:
+            project: Current review project
+
+        Returns:
+            List of papers with pending or maybe status
+        """
+        all_papers = self.storage.load_all_papers()
+        return [
+            p for p in all_papers
+            if p.status in (PaperStatus.PENDING, PaperStatus.MAYBE)
+        ]
+
+    def can_start_iteration(self, project: ReviewProject) -> tuple[bool, str]:
+        """Check if a new snowball iteration can be started.
+
+        For accountability, all papers from previous iterations must be
+        reviewed (not pending or maybe) before starting a new iteration.
+
+        Args:
+            project: Current review project
+
+        Returns:
+            Tuple of (can_start, reason_if_blocked)
+        """
+        unreviewed = self.get_unreviewed_papers(project)
+
+        if unreviewed:
+            pending_count = sum(1 for p in unreviewed if p.status == PaperStatus.PENDING)
+            maybe_count = sum(1 for p in unreviewed if p.status == PaperStatus.MAYBE)
+
+            parts = []
+            if pending_count:
+                parts.append(f"{pending_count} pending")
+            if maybe_count:
+                parts.append(f"{maybe_count} maybe")
+
+            reason = f"Cannot start new iteration: {' and '.join(parts)} papers need review"
+            return False, reason
+
+        if not self.should_continue_snowballing(project):
+            return False, "No included papers to snowball from"
+
+        return True, ""
 
     def update_citations_from_google_scholar(
         self,
