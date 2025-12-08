@@ -230,7 +230,6 @@ class SnowballApp(App):
         # Review actions (shown in footer)
         Binding("i", "include", "Include"),
         Binding("right", "include", "Include (arrow)", show=False),
-        Binding("e", "exclude", "Exclude"),
         Binding("left", "exclude", "Exclude (arrow)", show=False),
         Binding("m", "maybe", "Maybe"),
         Binding("n", "notes", "Notes"),
@@ -238,7 +237,7 @@ class SnowballApp(App):
         Binding("o", "open", "Open DOI/arXiv"),
         Binding("p", "open_pdf", "Open local PDF"),
         Binding("d", "toggle_details", "Toggle details"),
-        Binding("r", "repair", "Repair/enrich metadata"),
+        Binding("e", "enrich", "Enrich metadata"),
         # Project actions
         Binding("s", "snowball", "Run snowball"),
         Binding("x", "export", "Export"),
@@ -769,8 +768,8 @@ class SnowballApp(App):
             detail_section.add_class("hidden")
             detail_section.styles.height = 0
 
-    def action_repair(self) -> None:
-        """Repair/enrich the current paper's metadata from APIs."""
+    def action_enrich(self) -> None:
+        """Enrich the current paper's metadata from APIs."""
         if not self.current_paper:
             self.notify("No paper selected", severity="warning")
             return
@@ -783,10 +782,10 @@ class SnowballApp(App):
         had_citations = paper.citation_count is not None
         had_doi = bool(paper.doi)
 
-        self.notify(f"Enriching: {paper.title[:50]}...", title="Repairing")
+        self.notify(f"Enriching: {paper.title[:50]}...", title="Enriching")
 
         try:
-            # Re-enrich from APIs
+            # Enrich from APIs
             self.engine.api.enrich_metadata(paper)
 
             # Save the updated paper
@@ -804,16 +803,16 @@ class SnowballApp(App):
                 updates.append("DOI")
 
             if updates:
-                self.notify(f"Added: {', '.join(updates)}", title="Repair complete", severity="information")
+                self.notify(f"Added: {', '.join(updates)}", title="Enriched", severity="information")
             else:
-                self.notify("No new metadata found", title="Repair complete", severity="warning")
+                self.notify("No new metadata found", title="Enriched", severity="warning")
 
             # Refresh display
             self._show_paper_details(paper)
             self._refresh_table()
 
         except Exception as e:
-            self.notify(f"Repair failed: {e}", title="Error", severity="error")
+            self.notify(f"Enrich failed: {e}", title="Error", severity="error")
 
     def action_help(self) -> None:
         """Show help with all keybindings."""
@@ -827,14 +826,14 @@ class SnowballApp(App):
 
 [bold]Review Actions:[/bold]
   i / →       Include paper (moves to next)
-  e / ←       Exclude paper (moves to next)
+  ←           Exclude paper (moves to next)
   m           Mark as Maybe
   n           Add/edit notes
 
 [bold]Paper Actions:[/bold]
   o           Open DOI/arXiv in browser
   p           Open local PDF
-  r           Repair/enrich metadata from APIs
+  e           Enrich metadata from APIs
 
 [bold]Table:[/bold]
   Click header Sort by column (cycles: asc → desc → default)
