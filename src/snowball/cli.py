@@ -568,6 +568,67 @@ def update_citations(args) -> None:
     logger.info(f"  Skipped: {stats['skipped']}")
 
 
+def _titles_match(title1: str, title2: str, threshold: float = 0.8) -> bool:
+    """Check if two titles are similar enough to be the same paper.
+
+    Uses Jaccard similarity on words after removing stopwords.
+    """
+    # Normalize titles
+    words1 = set(title1.lower().split())
+    words2 = set(title2.lower().split())
+
+    # Remove common short words
+    stopwords = {'a', 'an', 'the', 'of', 'in', 'on', 'for', 'to', 'and', 'or', 'with'}
+    words1 = words1 - stopwords
+    words2 = words2 - stopwords
+
+    if not words1 or not words2:
+        return False
+
+    # Calculate Jaccard similarity
+    intersection = len(words1 & words2)
+    union = len(words1 | words2)
+    similarity = intersection / union if union > 0 else 0
+
+    return similarity >= threshold
+
+
+def _find_paper_by_title_fuzzy(papers: list, title: str, threshold: float = 0.8):
+    """Find a paper by fuzzy title match.
+
+    Returns the best matching paper or None.
+    """
+    if not title:
+        return None
+
+    best_match = None
+    best_score = 0
+
+    for paper in papers:
+        if not paper.title:
+            continue
+
+        # Calculate similarity
+        words1 = set(title.lower().split())
+        words2 = set(paper.title.lower().split())
+        stopwords = {'a', 'an', 'the', 'of', 'in', 'on', 'for', 'to', 'and', 'or', 'with'}
+        words1 = words1 - stopwords
+        words2 = words2 - stopwords
+
+        if not words1 or not words2:
+            continue
+
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        similarity = intersection / union if union > 0 else 0
+
+        if similarity >= threshold and similarity > best_score:
+            best_score = similarity
+            best_match = paper
+
+    return best_match
+
+
 def parse_pdfs(args) -> None:
     """Parse PDFs in the pdfs/ folder and attach references to matching papers."""
     project_dir = Path(args.directory)
@@ -589,46 +650,58 @@ def parse_pdfs(args) -> None:
     if not pdfs_dir.exists():
         logger.info(f"Creating pdfs directory: {pdfs_dir}")
         pdfs_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("No PDFs found. Add PDFs named <paper-id>.pdf to this folder.")
+        logger.info("No PDFs found. Add PDF files to this folder.")
         return
 
     # Find PDF files
     pdf_files = list(pdfs_dir.glob("*.pdf"))
     if not pdf_files:
         logger.info("No PDF files found in pdfs/ directory.")
-        logger.info("Add PDFs named <paper-id>.pdf to parse references.")
+        logger.info("Add PDF files to parse references.")
         return
 
     logger.info(f"Found {len(pdf_files)} PDF files")
 
+    # Load all papers for title matching
+    all_papers = storage.load_all_papers()
+    logger.info(f"Loaded {len(all_papers)} papers for matching")
+
     # Initialize parser
-    parser = PDFParser()
-    if not parser.grobid_available:
+    pdf_parser = PDFParser()
+    if not pdf_parser.grobid_available:
         logger.warning("GROBID not available. Will use heuristic extraction (less accurate).")
 
     # Process each PDF
     processed = 0
-    skipped = 0
+    no_match = 0
     failed = 0
 
     for pdf_path in pdf_files:
-        paper_id = pdf_path.stem  # filename without extension
-
-        # Check if paper exists
-        paper = storage.load_paper(paper_id)
-        if not paper:
-            logger.warning(f"No paper found with ID: {paper_id} (skipping {pdf_path.name})")
-            skipped += 1
-            continue
-
-        logger.info(f"Processing: {pdf_path.name} -> {truncate_title(paper.title, 50)}")
+        logger.info(f"Parsing: {pdf_path.name}")
 
         try:
-            # Parse PDF
-            result = parser.parse(pdf_path)
+            # Parse PDF to get title and references
+            result = pdf_parser.parse(pdf_path)
 
+            if not result.title:
+                logger.warning(f"  Could not extract title from PDF")
+                failed += 1
+                continue
+
+            logger.info(f"  Extracted title: {truncate_title(result.title, 60)}")
+
+            # Find matching paper by title
+            paper = _find_paper_by_title_fuzzy(all_papers, result.title)
+
+            if not paper:
+                logger.warning(f"  No matching paper found in project")
+                no_match += 1
+                continue
+
+            logger.info(f"  Matched to: {truncate_title(paper.title, 60)}")
+
+            # Store references
             if result.references:
-                # Store GROBID references in raw_data
                 if paper.raw_data is None:
                     paper.raw_data = {}
                 paper.raw_data["grobid_references"] = result.references
@@ -638,7 +711,6 @@ def parse_pdfs(args) -> None:
 
             # Update paper
             paper.pdf_path = str(pdf_path)
-            paper.references_unavailable = False  # Clear the flag
             storage.save_paper(paper)
 
             processed += 1
@@ -648,9 +720,9 @@ def parse_pdfs(args) -> None:
             failed += 1
 
     logger.info(f"\nParse complete:")
-    logger.info(f"  Processed: {processed}")
-    logger.info(f"  Skipped (no matching paper): {skipped}")
-    logger.info(f"  Failed: {failed}")
+    logger.info(f"  Matched and processed: {processed}")
+    logger.info(f"  No matching paper: {no_match}")
+    logger.info(f"  Failed to parse: {failed}")
 
     if processed > 0:
         logger.info("\nReferences will be used in the next snowball iteration.")
