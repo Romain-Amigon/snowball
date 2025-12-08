@@ -266,6 +266,9 @@ class SnowballApp(App):
         self.sort_ascending: bool = False  # False = descending (highest first)
         self.sort_cycle_position: int = 1  # 0=asc, 1=desc, 2=default
 
+        # Filter state: None = all, or PaperStatus value
+        self.filter_status: Optional[PaperStatus] = None
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(self._get_stats_text(), id="stats-panel")
@@ -335,6 +338,10 @@ class SnowballApp(App):
 
         papers = self.storage.load_all_papers()
 
+        # Apply status filter if set
+        if self.filter_status is not None:
+            papers = [p for p in papers if p.status == self.filter_status]
+
         # Sort papers using current sort settings
         papers.sort(key=self._get_sort_key, reverse=not self.sort_ascending)
 
@@ -381,14 +388,31 @@ class SnowballApp(App):
         included = by_status.get("included", 0)
         excluded = by_status.get("excluded", 0)
         pending = by_status.get("pending", 0)
+        maybe = by_status.get("maybe", 0)
+
+        # Filter indicator
+        if self.filter_status is None:
+            filter_text = "[bold]Filter:[/bold] All"
+        elif self.filter_status == PaperStatus.PENDING:
+            filter_text = "[bold]Filter:[/bold] [#d29922]Pending[/#d29922]"
+        elif self.filter_status == PaperStatus.INCLUDED:
+            filter_text = "[bold]Filter:[/bold] [#3fb950]Included[/#3fb950]"
+        elif self.filter_status == PaperStatus.EXCLUDED:
+            filter_text = "[bold]Filter:[/bold] [#f85149]Excluded[/#f85149]"
+        elif self.filter_status == PaperStatus.MAYBE:
+            filter_text = "[bold]Filter:[/bold] [#a371f7]Maybe[/#a371f7]"
+        else:
+            filter_text = "[bold]Filter:[/bold] All"
 
         return (
             f"[bold #58a6ff]{self.project.name}[/bold #58a6ff] [dim]│[/dim] "
             f"[bold]Total:[/bold] [#58a6ff]{total}[/#58a6ff] [dim]│[/dim] "
-            f"[#3fb950]✓ Included: {included}[/#3fb950] [dim]│[/dim] "
-            f"[#f85149]✗ Excluded: {excluded}[/#f85149] [dim]│[/dim] "
-            f"[#d29922]? Pending: {pending}[/#d29922] [dim]│[/dim] "
-            f"[bold]Iteration:[/bold] [#a371f7]{self.project.current_iteration}[/#a371f7]"
+            f"[#3fb950]✓ {included}[/#3fb950] [dim]│[/dim] "
+            f"[#f85149]✗ {excluded}[/#f85149] [dim]│[/dim] "
+            f"[#d29922]? {pending}[/#d29922] [dim]│[/dim] "
+            f"[#a371f7]~ {maybe}[/#a371f7] [dim]│[/dim] "
+            f"{filter_text} [dim]│[/dim] "
+            f"[bold]Iter:[/bold] [#a371f7]{self.project.current_iteration}[/#a371f7]"
         )
 
     def _format_paper_details(self, paper: Paper) -> str:
@@ -585,9 +609,26 @@ class SnowballApp(App):
         # In a real app, show a notification
 
     def action_filter(self) -> None:
-        """Open filter dialog."""
-        # Placeholder for filter dialog
-        pass
+        """Cycle through filter states: all → pending → included → excluded → maybe → all."""
+        # Define the cycle order
+        cycle = [None, PaperStatus.PENDING, PaperStatus.INCLUDED, PaperStatus.EXCLUDED, PaperStatus.MAYBE]
+
+        # Find current position and move to next
+        try:
+            current_index = cycle.index(self.filter_status)
+            next_index = (current_index + 1) % len(cycle)
+        except ValueError:
+            next_index = 0
+
+        self.filter_status = cycle[next_index]
+
+        # Refresh table with new filter
+        self._refresh_table()
+
+        # Move cursor to first row if there are papers
+        table = self.query_one("#papers-table", DataTable)
+        if table.row_count > 0:
+            table.move_cursor(row=0)
 
     def action_toggle_details(self) -> None:
         """Toggle the details panel for the current paper."""
@@ -678,7 +719,7 @@ class SnowballApp(App):
 [bold]Project Actions:[/bold]
   s           Run snowball iteration
   x           Export papers (BibTeX + CSV)
-  f           Filter papers (coming soon)
+  f           Filter papers (cycles: all → pending → included → excluded → maybe)
 
 [bold]Other:[/bold]
   Ctrl+P      Command palette
