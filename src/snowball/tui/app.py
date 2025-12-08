@@ -23,6 +23,7 @@ from ..storage.json_storage import JSONStorage
 from ..snowballing import SnowballEngine
 from ..exporters.bibtex import BibTeXExporter
 from ..exporters.csv_exporter import CSVExporter
+from ..parsers.pdf_parser import PDFParser
 from ..paper_utils import (
     get_status_value,
     get_source_value,
@@ -242,6 +243,7 @@ class SnowballApp(App):
         Binding("s", "snowball", "Run snowball"),
         Binding("x", "export", "Export"),
         Binding("f", "filter", "Filter papers"),
+        Binding("P", "parse_pdfs", "Parse PDFs in pdfs/"),
         # App actions
         Binding("question_mark", "help", "Show help"),
         Binding("q", "quit", "Quit"),
@@ -651,6 +653,106 @@ class SnowballApp(App):
         if table.row_count > 0:
             table.move_cursor(row=0)
 
+    def action_parse_pdfs(self) -> None:
+        """Scan pdfs/ folder and parse any PDFs, matching to papers by title."""
+        pdfs_dir = self.project_dir / "pdfs"
+
+        if not pdfs_dir.exists():
+            self.notify("No pdfs/ folder found", severity="warning")
+            return
+
+        pdf_files = list(pdfs_dir.glob("*.pdf"))
+        if not pdf_files:
+            self.notify("No PDF files in pdfs/ folder", severity="warning")
+            return
+
+        # Load all papers for matching
+        all_papers = self.storage.load_all_papers()
+
+        # Initialize parser
+        pdf_parser = PDFParser()
+
+        self.notify(f"Parsing {len(pdf_files)} PDFs...", title="Scanning")
+
+        processed = 0
+        no_match = 0
+
+        for pdf_path in pdf_files:
+            # Skip if already linked to a paper
+            already_linked = any(
+                p.pdf_path and Path(p.pdf_path).name == pdf_path.name
+                for p in all_papers
+            )
+            if already_linked:
+                continue
+
+            try:
+                result = pdf_parser.parse(pdf_path)
+                if not result.title:
+                    continue
+
+                # Find matching paper by title (fuzzy match)
+                matched_paper = self._find_paper_by_title_fuzzy(all_papers, result.title)
+
+                if matched_paper:
+                    # Store references
+                    if result.references:
+                        if matched_paper.raw_data is None:
+                            matched_paper.raw_data = {}
+                        matched_paper.raw_data["grobid_references"] = result.references
+
+                    matched_paper.pdf_path = str(pdf_path)
+                    self.storage.save_paper(matched_paper)
+                    processed += 1
+                else:
+                    no_match += 1
+
+            except Exception:
+                pass  # Skip failed parses silently
+
+        self._refresh_table()
+
+        if processed > 0 or no_match > 0:
+            self.notify(
+                f"Matched: {processed}, No match: {no_match}",
+                title="Parse complete",
+                severity="information" if processed > 0 else "warning"
+            )
+        else:
+            self.notify("No new PDFs to process", severity="information")
+
+    def _find_paper_by_title_fuzzy(self, papers: list, title: str, threshold: float = 0.8):
+        """Find a paper by fuzzy title match."""
+        if not title:
+            return None
+
+        best_match = None
+        best_score = 0
+
+        stopwords = {'a', 'an', 'the', 'of', 'in', 'on', 'for', 'to', 'and', 'or', 'with'}
+
+        words1 = set(title.lower().split()) - stopwords
+        if not words1:
+            return None
+
+        for paper in papers:
+            if not paper.title:
+                continue
+
+            words2 = set(paper.title.lower().split()) - stopwords
+            if not words2:
+                continue
+
+            intersection = len(words1 & words2)
+            union = len(words1 | words2)
+            similarity = intersection / union if union > 0 else 0
+
+            if similarity >= threshold and similarity > best_score:
+                best_score = similarity
+                best_match = paper
+
+        return best_match
+
     def action_toggle_details(self) -> None:
         """Toggle the details panel for the current paper."""
         if not self.current_paper:
@@ -741,6 +843,7 @@ class SnowballApp(App):
   s           Run snowball iteration
   x           Export papers (BibTeX + CSV)
   f           Filter papers (cycles: all → pending → included → excluded → maybe)
+  P           Parse PDFs in pdfs/ folder (Shift+P)
 
 [bold]Other:[/bold]
   Ctrl+P      Command palette
