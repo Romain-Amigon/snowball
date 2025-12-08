@@ -206,6 +206,8 @@ class APIAggregator:
     def enrich_metadata(self, paper: Paper) -> Paper:
         """Enrich paper metadata using all available APIs."""
         for api_name, client in self.clients.items():
+            if not hasattr(client, 'enrich_metadata'):
+                continue
             try:
                 paper = client.enrich_metadata(paper)
             except Exception as e:
