@@ -34,38 +34,6 @@ from ..paper_utils import (
 )
 
 
-class WorkingDialog(ModalScreen[None]):
-    """Modal dialog shown during long-running operations."""
-
-    DEFAULT_CSS = """
-    WorkingDialog {
-        align: center middle;
-    }
-
-    #working-dialog {
-        width: 40;
-        height: 5;
-        border: thick #58a6ff;
-        background: #161b22;
-        padding: 1 2;
-    }
-
-    #working-dialog Label {
-        width: 100%;
-        text-align: center;
-        color: #58a6ff;
-    }
-    """
-
-    def __init__(self, message: str = "Working..."):
-        super().__init__()
-        self.message = message
-
-    def compose(self) -> ComposeResult:
-        with Container(id="working-dialog"):
-            yield Label(f"⏳ {self.message}")
-
-
 class ReviewDialog(ModalScreen[Optional[tuple]]):
     """Modal dialog for reviewing a paper."""
 
@@ -643,9 +611,8 @@ class SnowballApp(App):
         old_count = len(self.storage.load_all_papers())
         self._worker_context["snowball"] = {"old_count": old_count}
 
-        # Show working dialog
-        working = WorkingDialog("Running snowball...")
-        self.push_screen(working)
+        # Show working notification
+        self.notify("Running snowball...", timeout=60)
 
         def do_snowball() -> int:
             """Run snowball in background thread."""
@@ -727,9 +694,8 @@ class SnowballApp(App):
         # Store context
         self._worker_context["parse_pdfs"] = {"pdf_files": pdf_files}
 
-        # Show working dialog
-        working = WorkingDialog("Parsing PDFs...")
-        self.push_screen(working)
+        # Show working notification
+        self.notify(f"Parsing {len(pdf_files)} PDFs...", timeout=60)
 
         def do_parse() -> dict:
             """Parse PDFs in background thread."""
@@ -866,15 +832,14 @@ class SnowballApp(App):
             "cursor_row": current_row_index,
         }
 
-        # Show working dialog
-        working = WorkingDialog("Enriching metadata...")
-        self.push_screen(working)
+        # Show working notification
+        self.notify("Enriching metadata...", timeout=30)
 
         def do_enrich() -> str:
             """Run enrichment in background thread."""
             self.engine.api.enrich_metadata(paper)
             self.storage.save_paper(paper)
-            return "enrich"  # Return task name for handler
+            return "enrich"
 
         self.run_worker(do_enrich, name="enrich", thread=True)
 
@@ -884,12 +849,6 @@ class SnowballApp(App):
             return
 
         worker_name = event.worker.name
-
-        # Dismiss working dialog
-        try:
-            self.pop_screen()
-        except Exception:
-            pass  # Dialog may already be dismissed
 
         if event.state == WorkerState.ERROR:
             self.notify(f"Operation failed: {event.worker.error}", title="Error", severity="error")
