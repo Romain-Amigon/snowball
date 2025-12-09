@@ -4,6 +4,7 @@ import logging
 import uuid
 from typing import Optional, List, Dict
 from ..models import Paper, PaperSource, Author
+from ..paper_utils import titles_match
 
 from .semantic_scholar import SemanticScholarClient
 from .crossref import CrossRefClient
@@ -78,16 +79,24 @@ class APIAggregator:
     def search_by_title(self, title: str) -> Optional[Paper]:
         """Search for a paper by title across all APIs.
 
-        Tries APIs in order of preference.
+        Tries APIs in order of preference. Only returns papers whose
+        title matches the search query (using title similarity).
         """
         for api_name in ["semantic_scholar", "openalex", "crossref", "arxiv"]:
             if api_name in self.clients:
                 try:
                     paper = self.clients[api_name].search_by_title(title)
-                    if paper:
-                        logger.info(f"Found paper '{title}' using {api_name}")
-                        # Enrich with other APIs
-                        return self.enrich_metadata(paper)
+                    if paper and paper.title:
+                        # Validate that the found paper's title actually matches
+                        if titles_match(title, paper.title):
+                            logger.info(f"Found paper '{title}' using {api_name}")
+                            # Enrich with other APIs
+                            return self.enrich_metadata(paper)
+                        else:
+                            logger.debug(
+                                f"{api_name} returned non-matching title: "
+                                f"searched '{title}', got '{paper.title}'"
+                            )
                 except Exception as e:
                     logger.warning(f"Error searching {api_name} by title: {e}")
 
@@ -232,15 +241,22 @@ class APIAggregator:
         # If we only have a title, search by title
         elif paper.title and not paper.doi:
             found_paper = self.search_by_title(paper.title)
-            if found_paper:
-                # Merge identifiers
-                if not paper.doi:
-                    paper.doi = found_paper.doi
-                if not paper.semantic_scholar_id:
-                    paper.semantic_scholar_id = found_paper.semantic_scholar_id
-                if not paper.openalex_id:
-                    paper.openalex_id = found_paper.openalex_id
-                if not paper.arxiv_id:
-                    paper.arxiv_id = found_paper.arxiv_id
+            if found_paper and found_paper.title:
+                # Validate that titles actually match before copying identifiers
+                if titles_match(paper.title, found_paper.title):
+                    # Merge identifiers
+                    if not paper.doi:
+                        paper.doi = found_paper.doi
+                    if not paper.semantic_scholar_id:
+                        paper.semantic_scholar_id = found_paper.semantic_scholar_id
+                    if not paper.openalex_id:
+                        paper.openalex_id = found_paper.openalex_id
+                    if not paper.arxiv_id:
+                        paper.arxiv_id = found_paper.arxiv_id
+                else:
+                    logger.warning(
+                        f"Title mismatch - searched for '{paper.title}' "
+                        f"but found '{found_paper.title}'. Skipping identifier merge."
+                    )
 
         return paper

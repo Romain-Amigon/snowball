@@ -193,6 +193,52 @@ def truncate_title(title: str, max_length: int = MAX_TITLE_LENGTH) -> str:
     return title
 
 
+# Stopwords to ignore in title similarity comparison
+TITLE_STOPWORDS = {'a', 'an', 'the', 'of', 'in', 'on', 'for', 'to', 'and', 'or', 'with', 'by', 'at', 'from'}
+
+
+def title_similarity(title1: str, title2: str) -> float:
+    """Calculate Jaccard similarity between two titles.
+
+    Uses word-based Jaccard similarity with stopword removal.
+
+    Args:
+        title1: First title
+        title2: Second title
+
+    Returns:
+        Similarity score between 0.0 and 1.0
+    """
+    if not title1 or not title2:
+        return 0.0
+
+    # Normalize and tokenize
+    words1 = set(title1.lower().split()) - TITLE_STOPWORDS
+    words2 = set(title2.lower().split()) - TITLE_STOPWORDS
+
+    if not words1 or not words2:
+        return 0.0
+
+    intersection = len(words1 & words2)
+    union = len(words1 | words2)
+
+    return intersection / union if union > 0 else 0.0
+
+
+def titles_match(title1: str, title2: str, threshold: float = 0.7) -> bool:
+    """Check if two titles are similar enough to be considered the same paper.
+
+    Args:
+        title1: First title
+        title2: Second title
+        threshold: Minimum similarity score to consider a match (default 0.7)
+
+    Returns:
+        True if titles match above threshold
+    """
+    return title_similarity(title1, title2) >= threshold
+
+
 def paper_to_dict(paper: Paper, include_abstract: bool = False) -> dict:
     """Convert paper to dictionary for JSON output.
 
