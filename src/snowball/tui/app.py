@@ -130,9 +130,9 @@ class SnowballApp(App):
         display: none;
     }
 
-    /* Detail panel (left, 66%) */
+    /* Detail panel (left, 50%) */
     #detail-panel {
-        width: 2fr;
+        width: 1fr;
         height: 100%;
         background: #0d1117;
         border: solid #30363d;
@@ -146,7 +146,7 @@ class SnowballApp(App):
         color: #c9d1d9;
     }
 
-    /* Event log panel (right, 33%) */
+    /* Event log panel (right, 50%) */
     #log-panel {
         width: 1fr;
         height: 100%;
