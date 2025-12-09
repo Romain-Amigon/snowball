@@ -303,6 +303,9 @@ class SnowballApp(App):
         # Filter state: None = all, or PaperStatus value
         self.filter_status: Optional[PaperStatus] = None
 
+        # Worker context for background tasks
+        self._worker_context: dict = {}
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(self._get_stats_text(), id="stats-panel")
@@ -636,35 +639,36 @@ class SnowballApp(App):
 
     def action_snowball(self) -> None:
         """Run a snowball iteration."""
+        # Store context
+        old_count = len(self.storage.load_all_papers())
+        self._worker_context["snowball"] = {"old_count": old_count}
+
         # Show working dialog
         working = WorkingDialog("Running snowball...")
         self.push_screen(working)
 
         def do_snowball() -> int:
             """Run snowball in background thread."""
-            old_count = len(self.storage.load_all_papers())
             self.engine.run_snowball_iteration(self.project)
-            new_count = len(self.storage.load_all_papers())
-            return new_count - old_count
+            return len(self.storage.load_all_papers())
 
-        def on_complete(worker: Worker) -> None:
-            """Handle snowball completion."""
-            self.pop_screen()
+        self.run_worker(do_snowball, name="snowball", thread=True)
 
-            if worker.state == WorkerState.ERROR:
-                self.notify(f"Snowball failed: {worker.error}", title="Error", severity="error")
-                return
+    def _handle_snowball_complete(self) -> None:
+        """Handle snowball worker completion."""
+        ctx = self._worker_context.get("snowball", {})
+        old_count = ctx.get("old_count", 0)
 
-            new_papers = worker.result
-            self.project = self.storage.load_project()
-            self._refresh_table()
+        self.project = self.storage.load_project()
+        new_count = len(self.storage.load_all_papers())
+        new_papers = new_count - old_count
 
-            if new_papers > 0:
-                self.notify(f"Found {new_papers} new papers", title="Snowball complete", severity="information")
-            else:
-                self.notify("No new papers found", title="Snowball complete", severity="warning")
+        self._refresh_table()
 
-        self.run_worker(do_snowball, thread=True).add_callback(on_complete)
+        if new_papers > 0:
+            self.notify(f"Found {new_papers} new papers", title="Snowball complete", severity="information")
+        else:
+            self.notify("No new papers found", title="Snowball complete", severity="warning")
 
     def action_export(self) -> None:
         """Export papers."""
@@ -720,6 +724,9 @@ class SnowballApp(App):
             self.notify("No PDF files in pdfs/ folder", severity="warning")
             return
 
+        # Store context
+        self._worker_context["parse_pdfs"] = {"pdf_files": pdf_files}
+
         # Show working dialog
         working = WorkingDialog("Parsing PDFs...")
         self.push_screen(working)
@@ -765,32 +772,29 @@ class SnowballApp(App):
                 except Exception:
                     pass  # Skip failed parses silently
 
+            # Store results in context for handler
+            self._worker_context["parse_pdfs"]["processed"] = processed
+            self._worker_context["parse_pdfs"]["no_match"] = no_match
             return {"processed": processed, "no_match": no_match}
 
-        def on_complete(worker: Worker) -> None:
-            """Handle parse completion."""
-            self.pop_screen()
+        self.run_worker(do_parse, name="parse_pdfs", thread=True)
 
-            if worker.state == WorkerState.ERROR:
-                self.notify(f"Parse failed: {worker.error}", title="Error", severity="error")
-                return
+    def _handle_parse_pdfs_complete(self) -> None:
+        """Handle parse PDFs worker completion."""
+        ctx = self._worker_context.get("parse_pdfs", {})
+        processed = ctx.get("processed", 0)
+        no_match = ctx.get("no_match", 0)
 
-            result = worker.result
-            processed = result["processed"]
-            no_match = result["no_match"]
+        self._refresh_table()
 
-            self._refresh_table()
-
-            if processed > 0 or no_match > 0:
-                self.notify(
-                    f"Matched: {processed}, No match: {no_match}",
-                    title="Parse complete",
-                    severity="information" if processed > 0 else "warning"
-                )
-            else:
-                self.notify("No new PDFs to process", severity="information")
-
-        self.run_worker(do_parse, thread=True).add_callback(on_complete)
+        if processed > 0 or no_match > 0:
+            self.notify(
+                f"Matched: {processed}, No match: {no_match}",
+                title="Parse complete",
+                severity="information" if processed > 0 else "warning"
+            )
+        else:
+            self.notify("No new PDFs to process", severity="information")
 
     def _find_paper_by_title_fuzzy(self, papers: list, title: str, threshold: float = 0.8):
         """Find a paper by fuzzy title match."""
@@ -852,69 +856,85 @@ class SnowballApp(App):
         table = self.query_one("#papers-table", DataTable)
         current_row_index = table.cursor_row
 
-        # Track what was missing before
-        had_abstract = bool(paper.abstract)
-        had_year = paper.year is not None
-        had_citations = paper.citation_count is not None
-        had_doi = bool(paper.doi)
+        # Store context for worker completion handler
+        self._worker_context["enrich"] = {
+            "paper": paper,
+            "had_abstract": bool(paper.abstract),
+            "had_year": paper.year is not None,
+            "had_citations": paper.citation_count is not None,
+            "had_doi": bool(paper.doi),
+            "cursor_row": current_row_index,
+        }
 
         # Show working dialog
         working = WorkingDialog("Enriching metadata...")
         self.push_screen(working)
 
-        def do_enrich() -> dict:
+        def do_enrich() -> str:
             """Run enrichment in background thread."""
             self.engine.api.enrich_metadata(paper)
             self.storage.save_paper(paper)
-            return {
-                "paper": paper,
-                "had_abstract": had_abstract,
-                "had_year": had_year,
-                "had_citations": had_citations,
-                "had_doi": had_doi,
-                "cursor_row": current_row_index,
-            }
+            return "enrich"  # Return task name for handler
 
-        def on_complete(worker: Worker) -> None:
-            """Handle enrichment completion."""
-            # Dismiss working dialog
+        self.run_worker(do_enrich, name="enrich", thread=True)
+
+    def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Handle worker completion."""
+        if event.state != WorkerState.SUCCESS and event.state != WorkerState.ERROR:
+            return
+
+        worker_name = event.worker.name
+
+        # Dismiss working dialog
+        try:
             self.pop_screen()
+        except Exception:
+            pass  # Dialog may already be dismissed
 
-            if worker.state == WorkerState.ERROR:
-                self.notify(f"Enrich failed: {worker.error}", title="Error", severity="error")
-                return
+        if event.state == WorkerState.ERROR:
+            self.notify(f"Operation failed: {event.worker.error}", title="Error", severity="error")
+            return
 
-            result = worker.result
-            paper = result["paper"]
+        if worker_name == "enrich":
+            self._handle_enrich_complete()
+        elif worker_name == "snowball":
+            self._handle_snowball_complete()
+        elif worker_name == "parse_pdfs":
+            self._handle_parse_pdfs_complete()
 
-            # Build report of what was added
-            updates = []
-            if not result["had_abstract"] and paper.abstract:
-                updates.append("abstract")
-            if not result["had_year"] and paper.year:
-                updates.append("year")
-            if not result["had_citations"] and paper.citation_count is not None:
-                updates.append("citations")
-            if not result["had_doi"] and paper.doi:
-                updates.append("DOI")
+    def _handle_enrich_complete(self) -> None:
+        """Handle enrich worker completion."""
+        ctx = self._worker_context.get("enrich", {})
+        paper = ctx.get("paper")
 
-            if updates:
-                self.notify(f"Added: {', '.join(updates)}", title="Enriched", severity="information")
-            else:
-                self.notify("No new metadata found", title="Enriched", severity="warning")
+        if not paper:
+            return
 
-            # Refresh display
-            self._show_paper_details(paper)
-            self._refresh_table()
+        # Build report of what was added
+        updates = []
+        if not ctx.get("had_abstract") and paper.abstract:
+            updates.append("abstract")
+        if not ctx.get("had_year") and paper.year:
+            updates.append("year")
+        if not ctx.get("had_citations") and paper.citation_count is not None:
+            updates.append("citations")
+        if not ctx.get("had_doi") and paper.doi:
+            updates.append("DOI")
 
-            # Restore cursor position
-            table = self.query_one("#papers-table", DataTable)
-            if table.row_count > 0:
-                target_row = min(result["cursor_row"], table.row_count - 1)
-                table.move_cursor(row=target_row)
+        if updates:
+            self.notify(f"Added: {', '.join(updates)}", title="Enriched", severity="information")
+        else:
+            self.notify("No new metadata found", title="Enriched", severity="warning")
 
-        # Run in background thread
-        self.run_worker(do_enrich, thread=True).add_callback(on_complete)
+        # Refresh display
+        self._show_paper_details(paper)
+        self._refresh_table()
+
+        # Restore cursor position
+        table = self.query_one("#papers-table", DataTable)
+        if table.row_count > 0:
+            target_row = min(ctx.get("cursor_row", 0), table.row_count - 1)
+            table.move_cursor(row=target_row)
 
     def action_help(self) -> None:
         """Show help with all keybindings."""
