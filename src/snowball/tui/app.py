@@ -121,14 +121,12 @@ class SnowballApp(App):
 
     /* Bottom section with details and log */
     #bottom-section {
-        height: auto;
-        max-height: 20;
+        height: 15;
         width: 100%;
         layout: horizontal;
     }
 
     #bottom-section.hidden {
-        height: 0;
         display: none;
     }
 
@@ -141,9 +139,8 @@ class SnowballApp(App):
         overflow-y: auto;
     }
 
-    .detail-content {
+    #detail-content {
         width: 100%;
-        height: auto;
         padding: 1 2;
         background: #0d1117;
         color: #c9d1d9;
@@ -158,7 +155,7 @@ class SnowballApp(App):
         overflow-y: auto;
     }
 
-    #log-panel Static {
+    #log-content {
         padding: 0 1;
         color: #8b949e;
     }
@@ -312,7 +309,7 @@ class SnowballApp(App):
         with Horizontal(id="bottom-section"):
             # Detail panel (66% width)
             with ScrollableContainer(id="detail-panel"):
-                yield Static("", classes="detail-content")
+                yield Static("Select a paper to view details", id="detail-content", classes="detail-content")
 
             # Event log panel (33% width)
             with ScrollableContainer(id="log-panel"):
@@ -479,8 +476,7 @@ class SnowballApp(App):
         details_text = self._format_paper_details(paper)
 
         # Update the content
-        detail_panel = self.query_one("#detail-panel")
-        detail_content = detail_panel.query_one(".detail-content")
+        detail_content = self.query_one("#detail-content", Static)
         detail_content.update(details_text)
 
     def _log_event(self, message: str) -> None:
