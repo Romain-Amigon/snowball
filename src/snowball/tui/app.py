@@ -119,21 +119,26 @@ class SnowballApp(App):
         background: #1f6feb 50%;
     }
 
-    /* Detail section styling */
-    #detail-section {
+    /* Bottom section with details and log */
+    #bottom-section {
         height: 0;
-        max-height: 25;
+        max-height: 20;
         width: 100%;
-        background: #0d1117;
-        border: solid #30363d;
-        padding: 0;
-        overflow-y: auto;
+        layout: horizontal;
     }
 
-    #detail-section.hidden {
-        height: 0;
-        padding: 0;
-        border: none;
+    #bottom-section.visible {
+        height: auto;
+        max-height: 20;
+    }
+
+    /* Detail panel (left, 66%) */
+    #detail-panel {
+        width: 2fr;
+        height: 100%;
+        background: #0d1117;
+        border: solid #30363d;
+        overflow-y: auto;
     }
 
     .detail-content {
@@ -142,6 +147,27 @@ class SnowballApp(App):
         padding: 1 2;
         background: #0d1117;
         color: #c9d1d9;
+    }
+
+    /* Event log panel (right, 33%) */
+    #log-panel {
+        width: 1fr;
+        height: 100%;
+        background: #0d1117;
+        border: solid #30363d;
+        overflow-y: auto;
+    }
+
+    #log-panel Static {
+        padding: 0 1;
+        color: #8b949e;
+    }
+
+    .log-header {
+        background: #161b22;
+        color: #58a6ff;
+        padding: 0 1;
+        text-style: bold;
     }
 
     /* Review dialog styling */
@@ -274,16 +300,24 @@ class SnowballApp(App):
         # Worker context for background tasks
         self._worker_context: dict = {}
 
+        # Event log for tracking actions
+        self._event_log: list[str] = []
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(self._get_stats_text(), id="stats-panel")
         yield DataTable(id="papers-table", cursor_type="row")
 
-        # Detail section - starts hidden
-        detail_section = ScrollableContainer(
-            Static("", classes="detail-content"), id="detail-section", classes="hidden"
-        )
-        yield detail_section
+        # Bottom section with details (left) and log (right)
+        with Horizontal(id="bottom-section", classes="visible"):
+            # Detail panel (66% width)
+            with ScrollableContainer(id="detail-panel"):
+                yield Static("", classes="detail-content")
+
+            # Event log panel (33% width)
+            with ScrollableContainer(id="log-panel"):
+                yield Static("[bold #58a6ff]Event Log[/bold #58a6ff]", classes="log-header")
+                yield Static("", id="log-content")
 
         yield Footer()
 
@@ -431,19 +465,30 @@ class SnowballApp(App):
         return format_paper_rich(paper)
 
     def _show_paper_details(self, paper: Paper) -> None:
-        """Show details for a paper in the detail section."""
+        """Show details for a paper in the detail panel."""
         self.current_paper = paper
         details_text = self._format_paper_details(paper)
 
         # Update the content
-        detail_section = self.query_one("#detail-section")
-        detail_content = detail_section.query_one(".detail-content")
+        detail_panel = self.query_one("#detail-panel")
+        detail_content = detail_panel.query_one(".detail-content")
         detail_content.update(details_text)
 
-        # Show the detail section
-        detail_section.remove_class("hidden")
-        detail_section.styles.height = "auto"
-        detail_section.styles.max_height = 25
+    def _log_event(self, message: str) -> None:
+        """Add an event to the log panel."""
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        entry = f"[dim]{timestamp}[/dim] {message}"
+        self._event_log.append(entry)
+
+        # Keep only last 50 entries
+        if len(self._event_log) > 50:
+            self._event_log = self._event_log[-50:]
+
+        # Update the log panel
+        log_content = self.query_one("#log-content", Static)
+        log_content.update("\n".join(self._event_log))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         """Handle row cursor movement - show details automatically."""
@@ -457,21 +502,12 @@ class SnowballApp(App):
             self._show_paper_details(paper)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection (Enter key) - toggle detail section."""
+        """Handle row selection (Enter key) - show paper details."""
         paper_id = event.row_key.value
         paper = self.storage.load_paper(paper_id)
 
         if paper:
-            # Check if we're selecting the same paper (toggle off)
-            detail_section = self.query_one("#detail-section")
-            if self.current_paper and self.current_paper.id == paper.id:
-                # Toggle off - hide detail section
-                detail_section.add_class("hidden")
-                detail_section.styles.height = 0
-                self.current_paper = None
-            else:
-                # Show/update detail section
-                self._show_paper_details(paper)
+            self._show_paper_details(paper)
 
     def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
         """Handle column header clicks for sorting."""
@@ -512,6 +548,16 @@ class SnowballApp(App):
         # Get the current table position
         table = self.query_one("#papers-table", DataTable)
         current_row_index = table.cursor_row
+
+        # Log the status change
+        title_short = truncate_title(self.current_paper.title, max_length=40)
+        status_colors = {
+            PaperStatus.INCLUDED: "[#3fb950]included[/#3fb950]",
+            PaperStatus.EXCLUDED: "[#f85149]excluded[/#f85149]",
+            PaperStatus.MAYBE: "[#a371f7]maybe[/#a371f7]",
+            PaperStatus.PENDING: "[#d29922]pending[/#d29922]",
+        }
+        self._log_event(f"Marked {status_colors.get(status, status.value)}: {title_short}")
 
         # Update the paper status (pass project for iteration stats tracking)
         self.engine.update_paper_review(
@@ -565,14 +611,10 @@ class SnowballApp(App):
                 )
                 self._refresh_table()
 
-                # Reload current paper and update detail section
+                # Reload current paper and update detail panel
                 self.current_paper = self.storage.load_paper(self.current_paper.id)
                 if self.current_paper:
-                    detail_section = self.query_one("#detail-section")
-                    if not detail_section.has_class("hidden"):
-                        details_text = self._format_paper_details(self.current_paper)
-                        detail_content = detail_section.query_one(".detail-content")
-                        detail_content.update(details_text)
+                    self._show_paper_details(self.current_paper)
 
         self.push_screen(ReviewDialog(self.current_paper), handle_notes)
 
@@ -634,12 +676,15 @@ class SnowballApp(App):
 
         if new_papers > 0:
             self.notify(f"Found {new_papers} new papers", title="Snowball complete", severity="information")
+            self._log_event(f"[#a371f7]Snowball[/#a371f7] iteration {self.project.current_iteration}: +{new_papers} papers")
         else:
             self.notify("No new papers found", title="Snowball complete", severity="warning")
+            self._log_event(f"[#a371f7]Snowball[/#a371f7] iteration {self.project.current_iteration}: no new papers")
 
     def action_export(self) -> None:
         """Export papers."""
         papers = self.storage.load_all_papers()
+        included_count = sum(1 for p in papers if p.status == PaperStatus.INCLUDED)
 
         # Export BibTeX
         bibtex_exporter = BibTeXExporter()
@@ -653,8 +698,8 @@ class SnowballApp(App):
         csv_path = self.project_dir / "export_all.csv"
         csv_exporter.export(papers, csv_path, only_included=False)
 
-        # Update stats to show export completed
-        # In a real app, show a notification
+        self.notify("Exported BibTeX and CSV", title="Export complete", severity="information")
+        self._log_event(f"[#d29922]Exported[/#d29922] {included_count} included → BibTeX, {len(papers)} total → CSV")
 
     def action_filter(self) -> None:
         """Cycle through filter states: all → pending → included → excluded → maybe → all."""
@@ -759,6 +804,7 @@ class SnowballApp(App):
                 title="Parse complete",
                 severity="information" if processed > 0 else "warning"
             )
+            self._log_event(f"[#58a6ff]PDF parse[/#58a6ff] matched: {processed}, unmatched: {no_match}")
         else:
             self.notify("No new PDFs to process", severity="information")
 
@@ -795,20 +841,14 @@ class SnowballApp(App):
         return best_match
 
     def action_toggle_details(self) -> None:
-        """Toggle the details panel for the current paper."""
-        if not self.current_paper:
-            return
-
-        detail_section = self.query_one("#detail-section")
-        if detail_section.has_class("hidden"):
-            # Show details
-            detail_section.remove_class("hidden")
-            detail_section.styles.height = "auto"
-            detail_section.styles.max_height = 25
+        """Toggle the bottom section (details + log) visibility."""
+        bottom_section = self.query_one("#bottom-section")
+        if bottom_section.has_class("visible"):
+            bottom_section.remove_class("visible")
+            bottom_section.styles.height = 0
         else:
-            # Hide details
-            detail_section.add_class("hidden")
-            detail_section.styles.height = 0
+            bottom_section.add_class("visible")
+            bottom_section.styles.height = "auto"
 
     def action_enrich(self) -> None:
         """Enrich the current paper's metadata from APIs."""
@@ -883,10 +923,13 @@ class SnowballApp(App):
         if not ctx.get("had_doi") and paper.doi:
             updates.append("DOI")
 
+        title_short = truncate_title(paper.title, max_length=30)
         if updates:
             self.notify(f"Added: {', '.join(updates)}", title="Enriched", severity="information")
+            self._log_event(f"[#58a6ff]Enriched[/#58a6ff] {title_short}: +{', '.join(updates)}")
         else:
             self.notify("No new metadata found", title="Enriched", severity="warning")
+            self._log_event(f"[#58a6ff]Enriched[/#58a6ff] {title_short}: no new data")
 
         # Refresh display
         self._show_paper_details(paper)
