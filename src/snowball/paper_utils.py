@@ -121,7 +121,7 @@ def get_sort_key(paper: Paper, column: str):
 
     Args:
         paper: Paper to generate sort key for
-        column: Column name to sort by (Status, Title, Year, Citations, Source, Iter)
+        column: Column name to sort by (Status, Title, Year, Citations, Source, Iter, Obs)
 
     Returns:
         Tuple for sorting comparison
@@ -149,6 +149,9 @@ def get_sort_key(paper: Paper, column: str):
 
     elif column == "Iter":
         return (0, paper.snowball_iteration)
+
+    elif column == "Obs":
+        return (0, paper.observation_count)
 
     else:
         # Fallback: sort by iteration, then status

@@ -192,6 +192,9 @@ class SnowballEngine:
                             discovered_papers.append(ref_paper)
                             self._mark_seen(ref_paper, seen_identifiers)
                             backward_count += 1
+                        else:
+                            # Duplicate found - increment observation count
+                            self._increment_observation_count(ref_paper)
                 except Exception as e:
                     logger.error(f"Error getting references: {e}")
 
@@ -207,6 +210,9 @@ class SnowballEngine:
                             discovered_papers.append(cit_paper)
                             self._mark_seen(cit_paper, seen_identifiers)
                             forward_count += 1
+                        else:
+                            # Duplicate found - increment observation count
+                            self._increment_observation_count(cit_paper)
                 except Exception as e:
                     logger.error(f"Error getting citations: {e}")
 
@@ -324,6 +330,29 @@ class SnowballEngine:
             if f"title:{paper.title.lower()}" in seen_identifiers:
                 return False
         return True
+
+    def _increment_observation_count(self, paper: Paper) -> None:
+        """Increment observation count for an existing paper.
+
+        Finds the existing paper by DOI or title and increments its observation_count.
+
+        Args:
+            paper: The duplicate paper (used to look up the existing one)
+        """
+        existing = None
+
+        # Try to find by DOI first
+        if paper.doi:
+            existing = self.storage.find_paper_by_doi(paper.doi)
+
+        # Fall back to title if not found by DOI
+        if not existing and paper.title:
+            existing = self.storage.find_paper_by_title(paper.title)
+
+        if existing:
+            existing.observation_count += 1
+            self.storage.save_paper(existing)
+            logger.debug(f"Incremented observation count for '{existing.title}' to {existing.observation_count}")
 
     def _mark_seen(self, paper: Paper, seen_identifiers: Set[str]) -> None:
         """Mark a paper as seen."""

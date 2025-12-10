@@ -86,6 +86,9 @@ class Paper(BaseModel):
     # Reference availability (for manual PDF fallback workflow)
     references_unavailable: bool = Field(False, description="True if refs couldn't be fetched, needs PDF")
 
+    # Observation tracking (how many times discovered across iterations)
+    observation_count: int = Field(1, description="Number of times this paper was discovered")
+
     # Raw data from APIs
     raw_data: Dict[str, Any] = Field(default_factory=dict)
 

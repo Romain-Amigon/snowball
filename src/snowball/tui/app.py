@@ -351,6 +351,7 @@ class SnowballApp(App):
             self._get_column_label("Citations"),
             self._get_column_label("Source"),
             self._get_column_label("Iter"),
+            self._get_column_label("Obs"),
             "PDF",
         )
 
@@ -389,6 +390,7 @@ class SnowballApp(App):
             self._get_column_label("Citations"),
             self._get_column_label("Source"),
             self._get_column_label("Iter"),
+            self._get_column_label("Obs"),
             "PDF",
         )
 
@@ -424,6 +426,9 @@ class SnowballApp(App):
             # PDF indicator
             pdf_indicator = "[#58a6ff]pdf[/#58a6ff]" if paper.pdf_path else ""
 
+            # Observation count
+            obs_count = str(paper.observation_count) if paper.observation_count > 1 else ""
+
             table.add_row(
                 status_display,
                 title,
@@ -431,6 +436,7 @@ class SnowballApp(App):
                 citations,
                 source_short,
                 str(paper.snowball_iteration),
+                obs_count,
                 pdf_indicator,
                 key=paper.id,
             )
