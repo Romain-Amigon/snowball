@@ -614,10 +614,13 @@ class SnowballApp(App):
         if not self.current_paper:
             return
 
-        # Save for undo before changing
+        # Save for undo before changing (convert status string to enum if needed)
+        current_status = self.current_paper.status
+        if isinstance(current_status, str):
+            current_status = PaperStatus(current_status)
         self._last_status_change = (
             self.current_paper.id,
-            self.current_paper.status,
+            current_status,
             self.current_paper.title,
         )
 
