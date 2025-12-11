@@ -248,14 +248,14 @@ class TestGetSortKey:
         key = get_sort_key(paper_with_nones, "Year")
         assert key == (1, 0)  # None goes to end
 
-    def test_sort_key_citations(self, paper):
-        """Test sort key for citations column."""
-        key = get_sort_key(paper, "Citations")
+    def test_sort_key_cite(self, paper):
+        """Test sort key for cite column."""
+        key = get_sort_key(paper, "Cite")
         assert key == (0, 100)
 
-    def test_sort_key_citations_none(self, paper_with_nones):
+    def test_sort_key_cite_none(self, paper_with_nones):
         """Test sort key for None citations."""
-        key = get_sort_key(paper_with_nones, "Citations")
+        key = get_sort_key(paper_with_nones, "Cite")
         assert key == (1, 0)  # None goes to end
 
     def test_sort_key_source(self, paper):

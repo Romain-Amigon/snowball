@@ -121,7 +121,7 @@ def get_sort_key(paper: Paper, column: str):
 
     Args:
         paper: Paper to generate sort key for
-        column: Column name to sort by (Status, Title, Year, Citations, Source, Iter, Obs)
+        column: Column name to sort by (Status, Title, Year, Cite, Source, Iter, Obs)
 
     Returns:
         Tuple for sorting comparison
@@ -138,7 +138,7 @@ def get_sort_key(paper: Paper, column: str):
             return (1, 0)  # (1, ...) puts None at end
         return (0, paper.year)
 
-    elif column == "Citations":
+    elif column == "Cite":
         if paper.citation_count is None:
             return (1, 0)
         return (0, paper.citation_count)
