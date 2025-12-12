@@ -14,6 +14,7 @@ from textual.widgets import (
     Label,
     TextArea,
     Select,
+    Input,
 )
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -78,12 +79,16 @@ class ReviewDialog(ModalScreen[Optional[tuple]]):
 class MetadataMismatchDialog(ModalScreen[Optional[dict]]):
     """Dialog to show metadata mismatches and let user approve/reject changes."""
 
+    # Use unique prefix to avoid catching events from other buttons
+    BUTTON_PREFIX = "mismatch-"
+
     def __init__(self, mismatches: list[tuple[str, str, str]], doi: str = None):
         """Initialize with list of (field_name, current_value, api_value) tuples."""
         super().__init__()
         self.mismatches = mismatches
         self.doi = doi
-        self.selections: dict[str, bool] = {m[0]: False for m in mismatches}
+        # Note: Can't use "selections" as it conflicts with Textual's Screen.selections
+        self.field_choices: dict[str, bool] = {m[0]: False for m in mismatches}
 
     def compose(self) -> ComposeResult:
         with Container(id="mismatch-dialog"):
@@ -103,30 +108,37 @@ class MetadataMismatchDialog(ModalScreen[Optional[dict]]):
                 api_display = api_val[:100] + ('...' if len(api_val) > 100 else '')
                 yield Label(f"  [dim]PDF/Current:[/dim] {current_display}")
                 yield Label(f"  [#58a6ff]API/DOI:[/#58a6ff] {api_display}")
-                yield Button(f"Use API {field}", id=f"update-{field}", variant="primary")
+                yield Button(f"Use API {field}", id=f"{self.BUTTON_PREFIX}update-{field}", variant="primary")
                 yield Label("")  # Spacer
 
             with Horizontal():
-                yield Button("Keep Current", variant="default", id="done-btn")
+                yield Button("Keep Current", variant="default", id=f"{self.BUTTON_PREFIX}done")
                 if self.doi:
-                    yield Button("Trust DOI (Update All)", variant="success", id="update-all-btn")
+                    yield Button("Trust DOI (Update All)", variant="success", id=f"{self.BUTTON_PREFIX}update-all")
                 else:
-                    yield Button("Use All API Values", variant="warning", id="update-all-btn")
+                    yield Button("Use All API Values", variant="warning", id=f"{self.BUTTON_PREFIX}update-all")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "done-btn":
-            self.dismiss(self.selections)
-        elif button_id == "update-all-btn":
+        if not button_id or not button_id.startswith(self.BUTTON_PREFIX):
+            return  # Not our button
+
+        # Stop event propagation
+        event.stop()
+
+        # Strip prefix to get the action
+        action = button_id[len(self.BUTTON_PREFIX):]
+
+        if action == "done":
+            self.dismiss(self.field_choices)
+        elif action == "update-all":
             for field, _, _ in self.mismatches:
-                self.selections[field] = True
-            self.dismiss(self.selections)
-        elif button_id and button_id.startswith("update-"):
-            field = button_id[7:]  # Remove "update-" prefix
-            self.selections[field] = True
-            # Update button to show it's selected
-            event.button.disabled = True
-            event.button.variant = "success"
+                self.field_choices[field] = True
+            self.dismiss(self.field_choices)
+        elif action.startswith("update-"):
+            field = action[7:]  # Remove "update-" prefix
+            self.field_choices[field] = True
+            self.dismiss(self.field_choices)
 
 
 class SnowballApp(App):
@@ -149,6 +161,21 @@ class SnowballApp(App):
         border: solid #30363d;
         background: #161b22;
         color: #c9d1d9;
+        align: left middle;
+    }
+
+    #stats-text {
+        width: 1fr;
+    }
+
+    #filter-input {
+        width: 30;
+        background: #0d1117;
+        border: solid #30363d;
+    }
+
+    #filter-input:focus {
+        border: solid #58a6ff;
     }
 
     /* Papers table styling */
@@ -157,6 +184,10 @@ class SnowballApp(App):
         width: 100%;
         background: #0d1117;
         border: solid #30363d;
+    }
+
+    #papers-table:focus {
+        border: solid #58a6ff;
     }
 
     DataTable > .datatable--header {
@@ -194,6 +225,10 @@ class SnowballApp(App):
         overflow-y: auto;
     }
 
+    #detail-panel:focus-within {
+        border: solid #58a6ff;
+    }
+
     #detail-content {
         width: 100%;
         padding: 1 2;
@@ -209,6 +244,10 @@ class SnowballApp(App):
         border: solid #30363d;
         overflow-y: auto;
         overflow-x: hidden;
+    }
+
+    #log-panel:focus-within {
+        border: solid #58a6ff;
     }
 
     #log-content {
@@ -371,6 +410,9 @@ class SnowballApp(App):
         # Filter state: None = all, or PaperStatus value
         self.filter_status: Optional[PaperStatus] = None
 
+        # Keyword filter for title search
+        self.filter_keyword: str = ""
+
         # Worker context for background tasks
         self._worker_context: dict = {}
 
@@ -383,7 +425,9 @@ class SnowballApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(self._get_stats_text(), id="stats-panel")
+        with Horizontal(id="stats-panel"):
+            yield Static(self._get_stats_text(), id="stats-text")
+            yield Input(placeholder="Filter titles...", id="filter-input")
         yield DataTable(id="papers-table", cursor_type="row")
 
         # Bottom section with details (left) and log (right)
@@ -428,10 +472,11 @@ class SnowballApp(App):
             self._get_column_label("Status"),
             self._get_column_label("Title"),
             self._get_column_label("Year"),
+            self._get_column_label("Refs"),
             self._get_column_label("Cite"),
+            self._get_column_label("Obs"),
             self._get_column_label("Source"),
             self._get_column_label("Iter"),
-            self._get_column_label("Obs"),
             "PDF",
         )
 
@@ -467,10 +512,11 @@ class SnowballApp(App):
             self._get_column_label("Status"),
             self._get_column_label("Title"),
             self._get_column_label("Year"),
+            self._get_column_label("Refs"),
             self._get_column_label("Cite"),
+            self._get_column_label("Obs"),
             self._get_column_label("Source"),
             self._get_column_label("Iter"),
-            self._get_column_label("Obs"),
             "PDF",
         )
 
@@ -479,6 +525,11 @@ class SnowballApp(App):
         # Apply status filter if set
         if self.filter_status is not None:
             papers = [p for p in papers if p.status == self.filter_status]
+
+        # Apply keyword filter if set
+        if self.filter_keyword:
+            keyword_lower = self.filter_keyword.lower()
+            papers = [p for p in papers if keyword_lower in p.title.lower()]
 
         # Sort papers using current sort settings
         papers.sort(key=self._get_sort_key, reverse=not self.sort_ascending)
@@ -494,7 +545,7 @@ class SnowballApp(App):
             }.get(status_val, "?")
 
             # Title (truncate for readability)
-            title = truncate_title(paper.title, max_length=160)
+            title = truncate_title(paper.title, max_length=140)
 
             # Citations
             citations = str(paper.citation_count) if paper.citation_count is not None else "-"
@@ -509,20 +560,36 @@ class SnowballApp(App):
             # Observation count
             obs_count = str(paper.observation_count) if paper.observation_count > 1 else ""
 
+            # GROBID references count
+            grobid_refs = paper.raw_data.get("grobid_references", []) if paper.raw_data else []
+            refs_count = str(len(grobid_refs)) if grobid_refs else ""
+
+            # Year with color for out-of-range values
+            if paper.year:
+                year_excluded = False
+                if self.project.filter_criteria.min_year and paper.year < self.project.filter_criteria.min_year:
+                    year_excluded = True
+                if self.project.filter_criteria.max_year and paper.year > self.project.filter_criteria.max_year:
+                    year_excluded = True
+                year_display = f"[#f85149]{paper.year}[/#f85149]" if year_excluded else str(paper.year)
+            else:
+                year_display = "-"
+
             table.add_row(
                 status_display,
                 title,
-                str(paper.year) if paper.year else "-",
+                year_display,
+                refs_count,
                 citations,
+                obs_count,
                 source_short,
                 str(paper.snowball_iteration),
-                obs_count,
                 pdf_indicator,
                 key=paper.id,
             )
 
         # Update stats
-        stats_panel = self.query_one("#stats-panel", Static)
+        stats_panel = self.query_one("#stats-text", Static)
         stats_panel.update(self._get_stats_text())
 
     def _get_stats_text(self) -> str:
@@ -682,6 +749,17 @@ class SnowballApp(App):
 
         # Refresh table with new sort
         self._refresh_table()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle filter input changes."""
+        if event.input.id == "filter-input":
+            self.filter_keyword = event.value
+            self._refresh_table()
+
+            # Move cursor to first row if there are results
+            table = self.query_one("#papers-table", DataTable)
+            if table.row_count > 0:
+                table.move_cursor(row=0)
 
     def _update_paper_status(self, status: PaperStatus) -> None:
         """Update the status of the currently selected paper and stay on next."""

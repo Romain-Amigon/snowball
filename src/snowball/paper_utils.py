@@ -143,6 +143,13 @@ def get_sort_key(paper: Paper, column: str):
             return (1, 0)
         return (0, paper.citation_count)
 
+    elif column == "Refs":
+        # GROBID references count
+        grobid_refs = paper.raw_data.get("grobid_references", []) if paper.raw_data else []
+        if not grobid_refs:
+            return (1, 0)  # No refs goes to end
+        return (0, len(grobid_refs))
+
     elif column == "Source":
         source_val = get_source_value(paper.source)
         return (0, SOURCE_ORDER.get(source_val, 999))
