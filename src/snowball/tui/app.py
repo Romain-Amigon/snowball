@@ -31,6 +31,7 @@ from ..paper_utils import (
     get_sort_key,
     format_paper_rich,
     truncate_title,
+    titles_match,
 )
 
 
@@ -72,6 +73,47 @@ class ReviewDialog(ModalScreen[Optional[tuple]]):
             self.dismiss((status, notes))
         else:
             self.dismiss(None)
+
+
+class MetadataMismatchDialog(ModalScreen[Optional[dict]]):
+    """Dialog to show metadata mismatches and let user approve/reject changes."""
+
+    def __init__(self, mismatches: list[tuple[str, str, str]]):
+        """Initialize with list of (field_name, current_value, api_value) tuples."""
+        super().__init__()
+        self.mismatches = mismatches
+        self.selections: dict[str, bool] = {m[0]: False for m in mismatches}
+
+    def compose(self) -> ComposeResult:
+        with Container(id="mismatch-dialog"):
+            yield Label("[bold #d29922]Metadata Mismatch Detected[/bold #d29922]\n")
+            yield Label("The API returned different values. Select which to update:\n")
+
+            for field, current, api_val in self.mismatches:
+                yield Label(f"[bold]{field}:[/bold]")
+                yield Label(f"  [dim]Current:[/dim] {current[:100]}{'...' if len(current) > 100 else ''}")
+                yield Label(f"  [#58a6ff]API:[/#58a6ff] {api_val[:100]}{'...' if len(api_val) > 100 else ''}")
+                yield Button(f"Update {field}", id=f"update-{field}", variant="primary")
+                yield Label("")  # Spacer
+
+            with Horizontal():
+                yield Button("Done", variant="default", id="done-btn")
+                yield Button("Update All", variant="warning", id="update-all-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "done-btn":
+            self.dismiss(self.selections)
+        elif button_id == "update-all-btn":
+            for field, _, _ in self.mismatches:
+                self.selections[field] = True
+            self.dismiss(self.selections)
+        elif button_id and button_id.startswith("update-"):
+            field = button_id[7:]  # Remove "update-" prefix
+            self.selections[field] = True
+            # Update button to show it's selected
+            event.button.label = f"✓ {field} will update"
+            event.button.variant = "success"
 
 
 class SnowballApp(App):
@@ -194,6 +236,25 @@ class SnowballApp(App):
         border: solid #30363d;
         height: 8;
         margin: 1 0;
+    }
+
+    /* Metadata mismatch dialog styling */
+    #mismatch-dialog {
+        width: 90;
+        height: auto;
+        max-height: 35;
+        border: thick #d29922;
+        background: #161b22;
+        padding: 2;
+        overflow-y: auto;
+    }
+
+    #mismatch-dialog Label {
+        color: #c9d1d9;
+    }
+
+    #mismatch-dialog Button {
+        margin: 0 1;
     }
 
     /* Button styling */
@@ -977,7 +1038,7 @@ class SnowballApp(App):
         table = self.query_one("#papers-table", DataTable)
         current_row_index = table.cursor_row
 
-        # Store context for worker completion handler
+        # Store context for worker completion handler, including original values for sanity check
         self._worker_context["enrich"] = {
             "paper": paper,
             "had_abstract": bool(paper.abstract),
@@ -985,6 +1046,10 @@ class SnowballApp(App):
             "had_citations": paper.citation_count is not None,
             "had_doi": bool(paper.doi),
             "cursor_row": current_row_index,
+            # Save original values for sanity checking
+            "original_title": paper.title,
+            "original_year": paper.year,
+            "original_authors": [a.name for a in paper.authors] if paper.authors else [],
         }
 
         # Show working notification
@@ -993,7 +1058,7 @@ class SnowballApp(App):
         def do_enrich() -> str:
             """Run enrichment in background thread."""
             self.engine.api.enrich_metadata(paper)
-            self.storage.save_paper(paper)
+            # Don't save yet - we'll save after sanity check
             return "enrich"
 
         self.run_worker(do_enrich, name="enrich", thread=True)
@@ -1027,6 +1092,77 @@ class SnowballApp(App):
         if not paper:
             return
 
+        # Check for mismatches between original and enriched values
+        mismatches = []
+        original_title = ctx.get("original_title", "")
+        original_year = ctx.get("original_year")
+
+        # Title mismatch check (only if title changed and doesn't match well)
+        if paper.title and original_title and paper.title != original_title:
+            if not titles_match(original_title, paper.title):
+                mismatches.append(("Title", original_title, paper.title))
+                # Restore original title until user approves
+                paper.title = original_title
+
+        # Year mismatch check (only if we had a year and it changed)
+        if original_year is not None and paper.year is not None and original_year != paper.year:
+            mismatches.append(("Year", str(original_year), str(paper.year)))
+            # Restore original year until user approves
+            paper.year = original_year
+
+        # If mismatches found, show dialog for user to approve/reject
+        if mismatches:
+            # Store mismatches and enriched values for dialog callback
+            self._worker_context["enrich"]["mismatches"] = mismatches
+            self._worker_context["enrich"]["enriched_title"] = ctx.get("original_title") if any(m[0] == "Title" for m in mismatches) else paper.title
+            self._worker_context["enrich"]["enriched_year"] = original_year if any(m[0] == "Year" for m in mismatches) else paper.year
+
+            # Find the actual enriched values from mismatches
+            for field, _, api_val in mismatches:
+                if field == "Title":
+                    self._worker_context["enrich"]["enriched_title"] = api_val
+                elif field == "Year":
+                    self._worker_context["enrich"]["enriched_year"] = int(api_val)
+
+            self.push_screen(MetadataMismatchDialog(mismatches), self._on_mismatch_dialog_result)
+            return
+
+        # No mismatches - proceed normally
+        self._finalize_enrich(paper, ctx)
+
+    def _on_mismatch_dialog_result(self, selections: Optional[dict]) -> None:
+        """Handle the result from the metadata mismatch dialog."""
+        ctx = self._worker_context.get("enrich", {})
+        paper = ctx.get("paper")
+
+        if not paper or selections is None:
+            # Dialog cancelled - save paper with original values restored
+            self.storage.save_paper(paper)
+            self._finalize_enrich(paper, ctx, cancelled=True)
+            return
+
+        # Apply approved changes
+        applied = []
+        if selections.get("Title"):
+            paper.title = ctx.get("enriched_title", paper.title)
+            applied.append("Title")
+        if selections.get("Year"):
+            paper.year = ctx.get("enriched_year", paper.year)
+            applied.append("Year")
+
+        # Save and finalize
+        self.storage.save_paper(paper)
+
+        if applied:
+            self._log_event(f"[#d29922]Updated:[/#d29922] {paper.title} ({', '.join(applied)} from API)")
+
+        self._finalize_enrich(paper, ctx)
+
+    def _finalize_enrich(self, paper: Paper, ctx: dict, cancelled: bool = False) -> None:
+        """Finalize the enrich operation - save, notify, refresh."""
+        # Save the paper
+        self.storage.save_paper(paper)
+
         # Build report of what was added
         updates = []
         if not ctx.get("had_abstract") and paper.abstract:
@@ -1038,7 +1174,10 @@ class SnowballApp(App):
         if not ctx.get("had_doi") and paper.doi:
             updates.append("DOI")
 
-        if updates:
+        if cancelled:
+            self.notify("Enrichment cancelled - kept original values", severity="warning")
+            self._log_event(f"[#58a6ff]Enriched:[/#58a6ff] {paper.title} (cancelled)")
+        elif updates:
             self.notify(f"Added: {', '.join(updates)}", title="Enriched", severity="information")
             self._log_event(f"[#58a6ff]Enriched:[/#58a6ff] {paper.title} +{', '.join(updates)}")
         else:
