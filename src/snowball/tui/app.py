@@ -1068,11 +1068,18 @@ class SnowballApp(App):
         # Show working notification
         self.notify("Enriching metadata...", timeout=30)
 
-        def do_enrich() -> str:
+        def do_enrich() -> dict:
             """Run enrichment in background thread."""
+            # First, enrich metadata as usual
             self.engine.api.enrich_metadata(paper)
-            # Don't save yet - we'll save after sanity check
-            return "enrich"
+
+            # If paper has a DOI, fetch the authoritative data for that DOI
+            # to compare against current title (GROBID might have extracted wrong title)
+            doi_paper = None
+            if paper.doi:
+                doi_paper = self.engine.api.search_by_doi(paper.doi)
+
+            return {"doi_paper": doi_paper}
 
         self.run_worker(do_enrich, name="enrich", thread=True)
 
@@ -1091,6 +1098,9 @@ class SnowballApp(App):
             return
 
         if worker_name == "enrich":
+            # Store worker result in context for handler
+            if hasattr(event.worker, 'result') and event.worker.result:
+                self._worker_context["enrich"]["worker_result"] = event.worker.result
             self._handle_enrich_complete()
         elif worker_name == "snowball":
             self._handle_snowball_complete()
@@ -1105,38 +1115,48 @@ class SnowballApp(App):
         if not paper:
             return
 
-        # Check for mismatches between original and enriched values
+        # Get the DOI paper lookup result (if available)
+        worker_result = ctx.get("worker_result", {})
+        doi_paper = worker_result.get("doi_paper") if isinstance(worker_result, dict) else None
+
+        # Check for mismatches
         mismatches = []
         original_title = ctx.get("original_title", "")
         original_year = ctx.get("original_year")
 
-        # Title mismatch check (only if title changed and doesn't match well)
-        if paper.title and original_title and paper.title != original_title:
+        # If we have a DOI and fetched the authoritative data, compare against that
+        # This catches cases where GROBID extracted wrong title but DOI is correct
+        if doi_paper and doi_paper.title:
+            if not titles_match(paper.title, doi_paper.title):
+                mismatches.append(("Title", paper.title, doi_paper.title))
+                self._worker_context["enrich"]["enriched_title"] = doi_paper.title
+
+            # Also check year from DOI lookup
+            if doi_paper.year and paper.year and doi_paper.year != paper.year:
+                mismatches.append(("Year", str(paper.year), str(doi_paper.year)))
+                self._worker_context["enrich"]["enriched_year"] = doi_paper.year
+            elif doi_paper.year and not paper.year:
+                # DOI has year but paper doesn't - not a mismatch, just missing data
+                paper.year = doi_paper.year
+
+        # Fallback: check if enrichment changed values (for papers without DOI)
+        elif paper.title and original_title and paper.title != original_title:
             if not titles_match(original_title, paper.title):
                 mismatches.append(("Title", original_title, paper.title))
-                # Restore original title until user approves
+                self._worker_context["enrich"]["enriched_title"] = paper.title
+                # Restore original until user approves
                 paper.title = original_title
 
-        # Year mismatch check (only if we had a year and it changed)
-        if original_year is not None and paper.year is not None and original_year != paper.year:
+        # Year mismatch from enrichment (if not already checked via DOI)
+        if not doi_paper and original_year is not None and paper.year is not None and original_year != paper.year:
             mismatches.append(("Year", str(original_year), str(paper.year)))
-            # Restore original year until user approves
+            self._worker_context["enrich"]["enriched_year"] = paper.year
+            # Restore original until user approves
             paper.year = original_year
 
         # If mismatches found, show dialog for user to approve/reject
         if mismatches:
-            # Store mismatches and enriched values for dialog callback
             self._worker_context["enrich"]["mismatches"] = mismatches
-            self._worker_context["enrich"]["enriched_title"] = ctx.get("original_title") if any(m[0] == "Title" for m in mismatches) else paper.title
-            self._worker_context["enrich"]["enriched_year"] = original_year if any(m[0] == "Year" for m in mismatches) else paper.year
-
-            # Find the actual enriched values from mismatches
-            for field, _, api_val in mismatches:
-                if field == "Title":
-                    self._worker_context["enrich"]["enriched_title"] = api_val
-                elif field == "Year":
-                    self._worker_context["enrich"]["enriched_year"] = int(api_val)
-
             self.push_screen(MetadataMismatchDialog(mismatches, doi=paper.doi), self._on_mismatch_dialog_result)
             return
 
