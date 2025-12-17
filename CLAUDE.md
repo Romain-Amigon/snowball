@@ -78,7 +78,7 @@ Primary: #58a6ff (blue)
 Success: #3fb950 (green - included)
 Error: #f85149 (red - excluded)
 Warning: #d29922 (yellow - pending)
-Purple: #a371f7 (maybe)
+Purple: #a371f7 (iteration indicator)
 Text: #c9d1d9
 ```
 

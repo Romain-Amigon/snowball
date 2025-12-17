@@ -53,7 +53,6 @@ class ReviewDialog(ModalScreen[Optional[tuple]]):
                 [
                     ("Include", "included"),
                     ("Exclude", "excluded"),
-                    ("Maybe", "maybe"),
                     ("Keep Pending", "pending"),
                 ],
                 value=get_status_value(self.paper.status),
@@ -372,7 +371,6 @@ class SnowballApp(App):
         Binding("i", "include", "Include"),
         Binding("right", "include", "Include (arrow)", show=False, priority=True),
         Binding("left", "exclude", "Exclude (arrow)", show=False, priority=True),
-        Binding("m", "maybe", "Maybe"),
         Binding("n", "notes", "Notes"),
         Binding("u", "undo", "Undo"),
         # Paper actions
@@ -420,8 +418,10 @@ class SnowballApp(App):
         self._worker_context: dict = {}
 
         # Event log for tracking actions (display format and raw for file)
+        # Uses append() for O(1) inserts, reversed for display (newest first)
         self._event_log: list[str] = []
         self._event_log_raw: list[str] = []
+        self._event_log_dirty: bool = False  # Deferred save flag
 
         # Undo stack for status changes: (paper_id, previous_status, title)
         self._last_status_change: Optional[tuple[str, PaperStatus, str]] = None
@@ -429,6 +429,12 @@ class SnowballApp(App):
         # Cached widget references for performance (set in on_mount)
         self._detail_content: Optional[Static] = None
         self._log_content: Optional[Static] = None
+
+        # Cache for source paper titles (avoids N+1 lookups)
+        self._source_title_cache: dict[str, str] = {}
+
+        # Debounce timer for filter input
+        self._filter_timer: Optional[object] = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -554,7 +560,6 @@ class SnowballApp(App):
                 "included": "[#3fb950]✓ Included[/#3fb950]",
                 "excluded": "[#f85149]✗ Excluded[/#f85149]",
                 "pending": "[#d29922]? Pending[/#d29922]",
-                "maybe": "[#a371f7]~ Maybe[/#a371f7]",
             }.get(status_val, "?")
 
             # Title (truncate for readability)
@@ -614,7 +619,6 @@ class SnowballApp(App):
         included = by_status.get("included", 0)
         excluded = by_status.get("excluded", 0)
         pending = by_status.get("pending", 0)
-        maybe = by_status.get("maybe", 0)
 
         # Filter indicator
         if self.filter_status is None:
@@ -625,8 +629,6 @@ class SnowballApp(App):
             filter_text = "[bold]Filter:[/bold] [#3fb950]Included[/#3fb950]"
         elif self.filter_status == PaperStatus.EXCLUDED:
             filter_text = "[bold]Filter:[/bold] [#f85149]Excluded[/#f85149]"
-        elif self.filter_status == PaperStatus.MAYBE:
-            filter_text = "[bold]Filter:[/bold] [#a371f7]Maybe[/#a371f7]"
         else:
             filter_text = "[bold]Filter:[/bold] All"
 
@@ -636,7 +638,6 @@ class SnowballApp(App):
             f"[#3fb950]✓ {included}[/#3fb950] [dim]│[/dim] "
             f"[#f85149]✗ {excluded}[/#f85149] [dim]│[/dim] "
             f"[#d29922]? {pending}[/#d29922] [dim]│[/dim] "
-            f"[#a371f7]~ {maybe}[/#a371f7] [dim]│[/dim] "
             f"{filter_text} [dim]│[/dim] "
             f"[bold]Iter:[/bold] [#a371f7]{self.project.current_iteration}[/#a371f7]"
         )
@@ -649,10 +650,19 @@ class SnowballApp(App):
         if paper.source_paper_ids:
             connections = []
             for source_id in paper.source_paper_ids:
-                source_paper = self.storage.load_paper(source_id)
-                if source_paper:
+                # Use cached title or load and cache
+                if source_id in self._source_title_cache:
+                    title = self._source_title_cache[source_id]
+                else:
+                    source_paper = self.storage.load_paper(source_id)
+                    if source_paper:
+                        title = source_paper.title
+                        self._source_title_cache[source_id] = title
+                    else:
+                        title = None
+
+                if title:
                     # Truncate long titles
-                    title = source_paper.title
                     if len(title) > 80:
                         title = title[:77] + "..."
                     connections.append(f"  • {title}")
@@ -673,30 +683,30 @@ class SnowballApp(App):
             self._detail_content.update(details_text)
 
     def _log_event(self, message: str) -> None:
-        """Add an event to the log panel and persist to file."""
+        """Add an event to the log panel (async file save)."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # Store with full timestamp for file, display with short timestamp
         display_entry = f"[dim]{timestamp[11:]}[/dim] {message}"
         file_entry = f"{timestamp} {message}"
 
-        # Insert at beginning (newest first)
-        self._event_log.insert(0, display_entry)
-        self._event_log_raw.insert(0, file_entry)
+        # Append for O(1) performance (display reversed for newest-first)
+        self._event_log.append(display_entry)
+        self._event_log_raw.append(file_entry)
 
-        # Keep only last 100 entries
+        # Keep only last 100 entries (trim from front - oldest)
         if len(self._event_log) > 100:
-            self._event_log = self._event_log[:100]
-            self._event_log_raw = self._event_log_raw[:100]
+            self._event_log = self._event_log[-100:]
+            self._event_log_raw = self._event_log_raw[-100:]
 
-        # Persist to file
-        self._save_event_log()
+        # Mark dirty for deferred save (saved on quit)
+        self._event_log_dirty = True
 
-        # Update the log panel using cached reference
+        # Update the log panel (reversed for newest-first display)
         if self._log_content:
-            self._log_content.update("\n".join(self._event_log))
+            self._log_content.update("\n".join(reversed(self._event_log)))
 
     def _load_event_log(self) -> None:
-        """Load event log from file (stored newest first)."""
+        """Load event log from file (stored newest first, converted to oldest first for append)."""
         log_file = self.project_dir / "event_log.txt"
         self._event_log = []
         self._event_log_raw = []
@@ -707,7 +717,8 @@ class SnowballApp(App):
                     lines = f.read().strip().split("\n")
                     # Keep first 100 entries (newest first in file)
                     lines = lines[:100] if len(lines) > 100 else lines
-                    for line in lines:
+                    # Reverse to get oldest-first order (for append-based storage)
+                    for line in reversed(lines):
                         if line.strip():
                             self._event_log_raw.append(line)
                             # Convert to display format (extract time portion)
@@ -721,11 +732,13 @@ class SnowballApp(App):
                 pass  # Start fresh if file is corrupted
 
     def _save_event_log(self) -> None:
-        """Save event log to file."""
+        """Save event log to file (newest first for conventional log format)."""
         log_file = self.project_dir / "event_log.txt"
         try:
+            # Write newest-first (reverse of internal oldest-first list)
             with open(log_file, "w") as f:
-                f.write("\n".join(self._event_log_raw))
+                f.write("\n".join(reversed(self._event_log_raw)))
+            self._event_log_dirty = False
         except Exception:
             pass  # Ignore save errors
 
@@ -780,15 +793,27 @@ class SnowballApp(App):
         self._refresh_table()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        """Handle filter input changes."""
+        """Handle filter input changes with debouncing."""
         if event.input.id == "filter-input":
-            self.filter_keyword = event.value
-            self._refresh_table()
+            # Cancel any pending filter timer
+            if self._filter_timer is not None:
+                self._filter_timer.stop()
 
-            # Move cursor to first row if there are results
-            table = self.query_one("#papers-table", DataTable)
-            if table.row_count > 0:
-                table.move_cursor(row=0)
+            # Store the value immediately for responsiveness
+            self.filter_keyword = event.value
+
+            # Debounce: wait 100ms before refreshing table
+            self._filter_timer = self.set_timer(0.1, self._apply_filter)
+
+    def _apply_filter(self) -> None:
+        """Apply the current filter (called after debounce delay)."""
+        self._filter_timer = None
+        self._refresh_table()
+
+        # Move cursor to first row if there are results
+        table = self.query_one("#papers-table", DataTable)
+        if table.row_count > 0:
+            table.move_cursor(row=0)
 
     def _update_paper_status(self, status: PaperStatus) -> None:
         """Update the status of the currently selected paper and stay on next."""
@@ -813,7 +838,6 @@ class SnowballApp(App):
         status_labels = {
             PaperStatus.INCLUDED: "[#3fb950]Included:[/#3fb950]",
             PaperStatus.EXCLUDED: "[#f85149]Excluded:[/#f85149]",
-            PaperStatus.MAYBE: "[#a371f7]Maybe:[/#a371f7]",
             PaperStatus.PENDING: "[#d29922]Pending:[/#d29922]",
         }
         self._log_event(f"{status_labels.get(status, status.value + ':')} {self.current_paper.title}")
@@ -854,10 +878,6 @@ class SnowballApp(App):
         """Mark the selected paper as excluded."""
         self._update_paper_status(PaperStatus.EXCLUDED)
 
-    def action_maybe(self) -> None:
-        """Mark the selected paper as maybe."""
-        self._update_paper_status(PaperStatus.MAYBE)
-
     def action_pending(self) -> None:
         """Mark the selected paper as pending."""
         self._update_paper_status(PaperStatus.PENDING)
@@ -888,7 +908,6 @@ class SnowballApp(App):
         status_labels = {
             PaperStatus.INCLUDED: "[#3fb950]Included[/#3fb950]",
             PaperStatus.EXCLUDED: "[#f85149]Excluded[/#f85149]",
-            PaperStatus.MAYBE: "[#a371f7]Maybe[/#a371f7]",
             PaperStatus.PENDING: "[#d29922]Pending[/#d29922]",
         }
         status_label = status_labels.get(previous_status, previous_status.value)
@@ -1056,9 +1075,9 @@ class SnowballApp(App):
             )
 
     def action_filter(self) -> None:
-        """Cycle through filter states: all → pending → included → excluded → maybe → all."""
+        """Cycle through filter states: all → pending → included → excluded → all."""
         # Define the cycle order
-        cycle = [None, PaperStatus.PENDING, PaperStatus.INCLUDED, PaperStatus.EXCLUDED, PaperStatus.MAYBE]
+        cycle = [None, PaperStatus.PENDING, PaperStatus.INCLUDED, PaperStatus.EXCLUDED]
 
         # Find current position and move to next
         try:
@@ -1406,8 +1425,8 @@ class SnowballApp(App):
 [bold]Review Actions:[/bold]
   i / →       Include paper (moves to next)
   ←           Exclude paper (moves to next)
-  m           Mark as Maybe
   n           Add/edit notes
+  u           Undo last status change
 
 [bold]Paper Actions:[/bold]
   o           Open DOI/arXiv in browser
@@ -1420,7 +1439,7 @@ class SnowballApp(App):
 [bold]Project Actions:[/bold]
   s           Run snowball iteration
   x           Export papers (BibTeX + CSV)
-  f           Filter papers (cycles: all → pending → included → excluded → maybe)
+  f           Filter papers (cycles: all → pending → included → excluded)
   g           Generate citation graph (600 DPI PNG)
   P           Parse PDFs in pdfs/ folder (Shift+P)
 
@@ -1435,6 +1454,10 @@ Press any key to close this help.
 
     def action_quit(self) -> None:
         """Quit the application, ensuring all pending writes are flushed."""
+        # Save event log if dirty
+        if self._event_log_dirty:
+            self._save_event_log()
+
         # Flush any pending disk writes before exiting
         self.storage.shutdown()
         self.exit()

@@ -488,8 +488,6 @@ class SnowballEngine:
             stats.manual_included = max(0, stats.manual_included - 1)
         elif old_status == PaperStatus.EXCLUDED and paper.exclusion_type == ExclusionType.MANUAL:
             stats.manual_excluded = max(0, stats.manual_excluded - 1)
-        elif old_status == PaperStatus.MAYBE:
-            stats.manual_maybe = max(0, stats.manual_maybe - 1)
 
         # Increment new status counter
         if new_status == PaperStatus.INCLUDED:
@@ -498,8 +496,6 @@ class SnowballEngine:
             # Only count as manual if not auto-excluded
             if paper.exclusion_type != ExclusionType.AUTO:
                 stats.manual_excluded += 1
-        elif new_status == PaperStatus.MAYBE:
-            stats.manual_maybe += 1
 
         # Update reviewed count (transition from pending to reviewed)
         if old_status == PaperStatus.PENDING and new_status != PaperStatus.PENDING:
@@ -527,25 +523,25 @@ class SnowballEngine:
             return len(included_papers) > 0
 
     def get_unreviewed_papers(self, project: ReviewProject) -> List[Paper]:
-        """Get papers that haven't been fully reviewed (pending or maybe).
+        """Get papers that haven't been reviewed yet.
 
         Args:
             project: Current review project
 
         Returns:
-            List of papers with pending or maybe status
+            List of papers with pending status
         """
         all_papers = self.storage.load_all_papers()
         return [
             p for p in all_papers
-            if p.status in (PaperStatus.PENDING, PaperStatus.MAYBE)
+            if p.status == PaperStatus.PENDING
         ]
 
     def can_start_iteration(self, project: ReviewProject) -> tuple[bool, str]:
         """Check if a new snowball iteration can be started.
 
         For accountability, all papers from previous iterations must be
-        reviewed (not pending or maybe) before starting a new iteration.
+        reviewed (not pending) before starting a new iteration.
 
         Args:
             project: Current review project
@@ -556,16 +552,7 @@ class SnowballEngine:
         unreviewed = self.get_unreviewed_papers(project)
 
         if unreviewed:
-            pending_count = sum(1 for p in unreviewed if p.status == PaperStatus.PENDING)
-            maybe_count = sum(1 for p in unreviewed if p.status == PaperStatus.MAYBE)
-
-            parts = []
-            if pending_count:
-                parts.append(f"{pending_count} pending")
-            if maybe_count:
-                parts.append(f"{maybe_count} maybe")
-
-            reason = f"Cannot start new iteration: {' and '.join(parts)} papers need review"
+            reason = f"Cannot start new iteration: {len(unreviewed)} pending papers need review"
             return False, reason
 
         if not self.should_continue_snowballing(project):

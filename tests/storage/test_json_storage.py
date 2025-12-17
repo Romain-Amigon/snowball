@@ -95,7 +95,7 @@ class TestJSONStorage:
         assert all(p.status == PaperStatus.INCLUDED for p in included)
 
         pending = storage_with_papers.get_papers_by_status(PaperStatus.PENDING)
-        assert len(pending) == 1
+        assert len(pending) == 2  # paper-2 and paper-4
 
     def test_get_papers_by_iteration(self, storage_with_papers):
         """Test filtering papers by iteration."""
@@ -133,11 +133,10 @@ class TestJSONStorage:
         """Test statistics by status breakdown."""
         stats = storage_with_papers.get_statistics()
         by_status = stats["by_status"]
-        
+
         assert by_status.get("included", 0) == 1
-        assert by_status.get("pending", 0) == 1
+        assert by_status.get("pending", 0) == 2
         assert by_status.get("excluded", 0) == 1
-        assert by_status.get("maybe", 0) == 1
 
     def test_get_statistics_empty(self, storage):
         """Test statistics when no papers exist."""
@@ -180,17 +179,19 @@ class TestJSONStorage:
     def test_paper_file_location(self, storage, sample_paper):
         """Test that papers are saved to correct file location."""
         storage.save_paper(sample_paper)
+        storage.flush()  # Wait for write-behind to complete
         paper_file = storage.papers_dir / f"{sample_paper.id}.json"
         assert paper_file.exists()
 
     def test_paper_file_is_valid_json(self, storage, sample_paper):
         """Test that saved paper file contains valid JSON."""
         storage.save_paper(sample_paper)
+        storage.flush()  # Wait for write-behind to complete
         paper_file = storage.papers_dir / f"{sample_paper.id}.json"
-        
+
         with open(paper_file, 'r') as f:
             data = json.load(f)
-        
+
         assert data["id"] == sample_paper.id
         assert data["title"] == sample_paper.title
 

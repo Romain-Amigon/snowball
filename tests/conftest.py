@@ -128,7 +128,7 @@ def sample_papers():
         title="Paper with None Values",
         year=None,
         citation_count=None,
-        status=PaperStatus.MAYBE,
+        status=PaperStatus.PENDING,
         source=PaperSource.BACKWARD,
         snowball_iteration=2
     ))
@@ -160,7 +160,7 @@ def sample_project():
         filter_criteria=FilterCriteria(min_year=2020),
         seed_paper_ids=["paper-1"],
         total_papers=4,
-        papers_by_status={"included": 1, "excluded": 1, "pending": 1, "maybe": 1},
+        papers_by_status={"included": 1, "excluded": 1, "pending": 2},
         current_iteration=1
     )
 
@@ -185,6 +185,7 @@ def storage_with_papers(storage, sample_papers):
     """Create a storage instance with sample papers pre-loaded."""
     for paper in sample_papers:
         storage.save_paper(paper)
+    storage.flush()  # Ensure writes complete before tests run
     return storage
 
 
@@ -194,4 +195,5 @@ def storage_with_project(storage, sample_project, sample_papers):
     storage.save_project(sample_project)
     for paper in sample_papers:
         storage.save_paper(paper)
+    storage.flush()  # Ensure writes complete before tests run
     return storage

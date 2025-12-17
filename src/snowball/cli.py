@@ -431,7 +431,6 @@ def set_status(args) -> None:
         "pending": PaperStatus.PENDING,
         "included": PaperStatus.INCLUDED,
         "excluded": PaperStatus.EXCLUDED,
-        "maybe": PaperStatus.MAYBE,
     }
 
     new_status = status_map.get(args.status)
@@ -487,7 +486,6 @@ def show_stats(args) -> None:
             "for_review": iter_stats.for_review,
             "manual_included": iter_stats.manual_included,
             "manual_excluded": iter_stats.manual_excluded,
-            "manual_maybe": iter_stats.manual_maybe,
             "reviewed": iter_stats.reviewed,
         }
 
@@ -539,8 +537,7 @@ def show_stats(args) -> None:
             print(f"    Review progress:")
             print(f"      ├─ Reviewed:  {iter_stats.reviewed}/{iter_stats.for_review}")
             print(f"      ├─ Included:  {iter_stats.manual_included}")
-            print(f"      ├─ Excluded:  {iter_stats.manual_excluded}")
-            print(f"      └─ Maybe:     {iter_stats.manual_maybe}")
+            print(f"      └─ Excluded:  {iter_stats.manual_excluded}")
 
         print()
         print("By Source:")
@@ -577,7 +574,6 @@ def update_citations(args) -> None:
             "pending": PaperStatus.PENDING,
             "included": PaperStatus.INCLUDED,
             "excluded": PaperStatus.EXCLUDED,
-            "maybe": PaperStatus.MAYBE,
         }
         papers = storage.get_papers_by_status(status_map[args.status])
         logger.info(f"Updating {len(papers)} papers with status '{args.status}'")
@@ -823,7 +819,7 @@ def main():
     )
     list_parser.add_argument("directory", help="Project directory")
     list_parser.add_argument(
-        "--status", choices=["pending", "included", "excluded", "maybe"], help="Filter by status"
+        "--status", choices=["pending", "included", "excluded"], help="Filter by status"
     )
     list_parser.add_argument("--iteration", type=int, help="Filter by snowball iteration")
     list_parser.add_argument(
@@ -864,7 +860,7 @@ def main():
     set_status_parser.add_argument(
         "--status",
         required=True,
-        choices=["pending", "included", "excluded", "maybe"],
+        choices=["pending", "included", "excluded"],
         help="New status",
     )
     set_status_parser.add_argument("--notes", help="Review notes")
@@ -885,7 +881,7 @@ def main():
     update_citations_parser.add_argument("directory", help="Project directory")
     update_citations_parser.add_argument(
         "--status",
-        choices=["pending", "included", "excluded", "maybe"],
+        choices=["pending", "included", "excluded"],
         help="Only update papers with this status",
     )
     update_citations_parser.add_argument(

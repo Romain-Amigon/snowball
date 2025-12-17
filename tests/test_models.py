@@ -23,7 +23,6 @@ class TestPaperStatus:
         assert PaperStatus.PENDING.value == "pending"
         assert PaperStatus.INCLUDED.value == "included"
         assert PaperStatus.EXCLUDED.value == "excluded"
-        assert PaperStatus.MAYBE.value == "maybe"
 
     def test_enum_is_string(self):
         """Test that PaperStatus values are strings."""
@@ -277,7 +276,6 @@ class TestIterationStats:
         assert stats.for_review == 0
         assert stats.manual_included == 0
         assert stats.manual_excluded == 0
-        assert stats.manual_maybe == 0
         assert stats.reviewed == 0
 
     def test_create_iteration_stats_full(self):
@@ -291,7 +289,6 @@ class TestIterationStats:
             for_review=40,
             manual_included=15,
             manual_excluded=20,
-            manual_maybe=5,
             reviewed=40
         )
         assert stats.iteration == 2
@@ -302,7 +299,6 @@ class TestIterationStats:
         assert stats.for_review == 40
         assert stats.manual_included == 15
         assert stats.manual_excluded == 20
-        assert stats.manual_maybe == 5
         assert stats.reviewed == 40
 
     def test_iteration_stats_has_timestamp(self):

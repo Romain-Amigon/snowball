@@ -103,9 +103,10 @@ class JSONStorage:
         Updates in-memory cache immediately (for fast UI response),
         then queues disk write for background thread.
         """
-        # Update cache immediately (UI sees this right away)
-        if self._papers_cache is not None:
-            self._papers_cache[paper.id] = paper
+        # Initialize cache if needed and update immediately (UI sees this right away)
+        if self._papers_cache is None:
+            self._papers_cache = {}
+        self._papers_cache[paper.id] = paper
 
         # Queue disk write for background thread
         self._write_queue.put(paper)
@@ -144,6 +145,16 @@ class JSONStorage:
         with open(self.papers_file, 'w') as f:
             json.dump(index, f, indent=2)
 
+    def _migrate_paper_data(self, data: dict) -> dict:
+        """Apply migrations to paper data before validation.
+
+        Migrations:
+        - Convert deprecated 'maybe' status to 'pending'
+        """
+        if data.get("status") == "maybe":
+            data["status"] = "pending"
+        return data
+
     def load_paper(self, paper_id: str) -> Optional[Paper]:
         """Load a single paper by ID."""
         # Check cache first
@@ -156,6 +167,7 @@ class JSONStorage:
 
         with open(paper_file, 'r') as f:
             data = json.load(f)
+            data = self._migrate_paper_data(data)
             paper = Paper.model_validate(data)
 
         # Update cache if it exists
@@ -179,6 +191,7 @@ class JSONStorage:
         for paper_file in self.papers_dir.glob("*.json"):
             with open(paper_file, 'r') as f:
                 data = json.load(f)
+                data = self._migrate_paper_data(data)
                 paper = Paper.model_validate(data)
                 self._papers_cache[paper.id] = paper
 

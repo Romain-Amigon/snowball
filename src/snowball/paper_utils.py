@@ -11,9 +11,8 @@ from .models import Paper, PaperStatus, PaperSource
 # Status ordering for sorting (pending first for review workflow)
 STATUS_ORDER: Dict[str, int] = {
     "pending": 0,
-    "maybe": 1,
-    "included": 2,
-    "excluded": 3,
+    "included": 1,
+    "excluded": 2,
 }
 
 # Source ordering for sorting
@@ -64,7 +63,7 @@ def filter_papers(
 
     Args:
         papers: List of papers to filter
-        status: Filter by status value (pending, included, excluded, maybe)
+        status: Filter by status value (pending, included, excluded)
         iteration: Filter by snowball iteration
         source: Filter by source value (seed, backward, forward)
 
@@ -492,7 +491,6 @@ def format_paper_rich(paper: Paper) -> str:
         "included": "#3fb950",
         "excluded": "#f85149",
         "pending": "#d29922",
-        "maybe": "#a371f7",
     }
     status_val = get_status_value(paper.status)
     status_color = status_colors.get(status_val, "#c9d1d9")

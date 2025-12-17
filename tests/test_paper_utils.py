@@ -29,7 +29,6 @@ class TestGetStatusValue:
         assert get_status_value(PaperStatus.PENDING) == "pending"
         assert get_status_value(PaperStatus.INCLUDED) == "included"
         assert get_status_value(PaperStatus.EXCLUDED) == "excluded"
-        assert get_status_value(PaperStatus.MAYBE) == "maybe"
 
     def test_with_string(self):
         """Test passing string directly."""
@@ -553,7 +552,7 @@ class TestFormatPaperRich:
         paper = Paper(
             id="test",
             title="Test Paper",
-            status=PaperStatus.MAYBE,
+            status=PaperStatus.PENDING,
             source=PaperSource.FORWARD,
         )
         result = format_paper_rich(paper)
@@ -566,7 +565,6 @@ class TestFormatPaperRich:
             PaperStatus.PENDING,
             PaperStatus.INCLUDED,
             PaperStatus.EXCLUDED,
-            PaperStatus.MAYBE,
         ]:
             paper = Paper(id="test", title="Test", status=status, source=PaperSource.SEED)
             result = format_paper_rich(paper)

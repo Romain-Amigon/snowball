@@ -11,7 +11,6 @@ class PaperStatus(str, Enum):
     PENDING = "pending"
     INCLUDED = "included"
     EXCLUDED = "excluded"
-    MAYBE = "maybe"
 
 
 class PaperSource(str, Enum):
@@ -123,7 +122,6 @@ class IterationStats(BaseModel):
     # Review stats (updated as papers are reviewed)
     manual_included: int = 0
     manual_excluded: int = 0
-    manual_maybe: int = 0
     reviewed: int = 0  # Total papers reviewed in this iteration
 
 
