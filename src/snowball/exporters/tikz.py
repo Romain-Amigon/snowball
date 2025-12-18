@@ -126,11 +126,13 @@ class TikZExporter:
             # Add author and year info if available
             metadata = []
             if paper.authors and len(paper.authors) > 0:
-                first_author = paper.authors[0].name.split()[-1]  # Last name
-                if len(paper.authors) > 1:
-                    metadata.append(f"{first_author} et al.")
-                else:
-                    metadata.append(first_author)
+                author_name = paper.authors[0].name.strip()
+                if author_name:
+                    first_author = author_name.split()[-1]  # Last name
+                    if len(paper.authors) > 1:
+                        metadata.append(f"{first_author} et al.")
+                    else:
+                        metadata.append(first_author)
 
             if paper.year:
                 metadata.append(str(paper.year))
@@ -177,7 +179,13 @@ class TikZExporter:
             return ""
         if len(title) <= max_length:
             return title
-        return title[:max_length].rsplit(" ", 1)[0] + "..."
+        # Truncate and try to break at word boundary
+        truncated = title[:max_length]
+        parts = truncated.rsplit(" ", 1)
+        if len(parts) > 1:
+            return parts[0] + "..."
+        # No spaces found, just truncate
+        return truncated + "..."
 
     def _escape_latex(self, text: str) -> str:
         """Escape special LaTeX characters."""
@@ -212,8 +220,3 @@ class TikZExporter:
             else:
                 sanitized += "_"
         return f"node_{sanitized}"
-
-    def _get_status(self, paper: Paper) -> str:
-        """Get status value as string."""
-        status = paper.status
-        return status.value if hasattr(status, "value") else status

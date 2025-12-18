@@ -344,3 +344,28 @@ class TestTikZExporterHelpers:
         assert "#" not in result
         assert "$" not in result
         assert "%" not in result
+
+    def test_truncate_title_no_spaces(self, exporter):
+        """Test truncating a title with no spaces (single very long word)."""
+        title = "A" * 100
+        result = exporter._truncate_title(title, max_length=60)
+        assert len(result) == 63  # 60 + "..."
+        assert result.endswith("...")
+
+    def test_author_name_empty(self, exporter):
+        """Test formatting with empty author name."""
+        paper = Paper(
+            id="empty-author",
+            title="Test Paper",
+            authors=[Author(name="")],
+            year=2023,
+            status=PaperStatus.INCLUDED,
+            source=PaperSource.SEED,
+            snowball_iteration=0,
+            source_paper_ids=[],
+        )
+        result = exporter.export([paper], only_included=True)
+
+        # Should still generate valid TikZ even with empty author
+        assert r"\begin{tikzpicture}" in result
+        assert "2023" in result
