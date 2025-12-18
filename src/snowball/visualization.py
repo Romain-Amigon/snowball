@@ -7,6 +7,26 @@ from typing import List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from .models import Paper
 
+# Muted dark mode color palette for edges - stylish and distinguishable
+EDGE_PALETTE = [
+    "#7eb8da",  # soft sky blue
+    "#a8d4a2",  # muted sage
+    "#e6b89c",  # warm peach
+    "#b8a9c9",  # dusty lavender
+    "#8ecdc8",  # soft teal
+    "#dba8a8",  # muted rose
+    "#c9c9a1",  # soft olive
+    "#a3c4bc",  # seafoam
+    "#d4a8c4",  # dusty pink
+    "#b8c9d4",  # pale steel
+    "#c9b8a3",  # warm sand
+    "#a8b8c9",  # cool grey-blue
+    "#c4d4a8",  # soft lime
+    "#d4b8c4",  # mauve
+    "#a8c9b8",  # mint
+    "#c9a8b8",  # dusty rose
+]
+
 
 def generate_citation_graph(
     papers: List["Paper"],
@@ -127,20 +147,27 @@ def generate_citation_graph(
         max_line_len = max(len(line) for line in label.split('\n'))
         text_half_widths[node] = max_line_len * 0.04 + padding
 
+    # Assign colors to source papers (papers that have outgoing edges)
+    source_nodes = sorted(set(source for source, _ in G.edges()))
+    source_colors = {
+        node: EDGE_PALETTE[i % len(EDGE_PALETTE)]
+        for i, node in enumerate(source_nodes)
+    }
+
     # Draw edges with elbow-style connectors (arrive horizontally)
-    from matplotlib.patches import FancyArrowPatch
+    from matplotlib.path import Path as MplPath
+    import matplotlib.patches as mpatches
 
     for source, target in G.edges():
         src_x, src_y = pos[source]
         tgt_x, tgt_y = pos[target]
 
+        # Get color for this source paper
+        edge_color = source_colors.get(source, EDGE_PALETTE[0])
+
         # Offset: start from right edge of source, end at left edge of target
         src_x_offset = src_x + text_half_widths[source]
         tgt_x_offset = tgt_x - text_half_widths[target]
-
-        # S-curve (cubic Bézier): leaves horizontally, arrives horizontally
-        from matplotlib.path import Path as MplPath
-        import matplotlib.patches as mpatches
 
         # Control point offset (determines curve tension)
         ctrl_offset = (tgt_x_offset - src_x_offset) * 0.4
@@ -161,9 +188,9 @@ def generate_citation_graph(
         patch = mpatches.PathPatch(
             path,
             facecolor='none',
-            edgecolor='#58a6ff',
-            alpha=0.5,
-            linewidth=1.2,
+            edgecolor=edge_color,
+            alpha=0.6,
+            linewidth=1.5,
         )
         ax.add_patch(patch)
 
@@ -175,9 +202,9 @@ def generate_citation_graph(
             xytext=(tgt_x_offset - arrow_size, tgt_y),
             arrowprops=dict(
                 arrowstyle='-|>',
-                color='#58a6ff',
-                alpha=0.5,
-                lw=1.2,
+                color=edge_color,
+                alpha=0.6,
+                lw=1.5,
                 mutation_scale=10,
             ),
         )
@@ -198,43 +225,9 @@ def generate_citation_graph(
     # Set axis limits based on data
     all_x = [p[0] for p in pos.values()]
     all_y = [p[1] for p in pos.values()]
-    margin = 2
+    margin = 1.5
     ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
     ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
-
-    # Add iteration labels at bottom
-    y_bottom = min(all_y) - margin + 0.5
-    for iter_num in sorted(iterations.keys()):
-        x = iter_num * x_spacing
-        iter_label = "Seeds" if iter_num == 0 else f"Iteration {iter_num}"
-        ax.text(
-            x, y_bottom,
-            iter_label,
-            ha="center",
-            fontsize=11,
-            fontweight="bold",
-            color="#58a6ff",
-        )
-
-    # Add title
-    ax.set_title(
-        title,
-        fontsize=18,
-        fontweight="bold",
-        color="#c9d1d9",
-        pad=20,
-    )
-
-    # Add stats annotation
-    stats_text = f"Included Papers: {len(G.nodes())} | Connections: {len(G.edges())}"
-    ax.annotate(
-        stats_text,
-        xy=(0.5, -0.02),
-        xycoords="axes fraction",
-        ha="center",
-        fontsize=11,
-        color="#8b949e",
-    )
 
     ax.axis("off")
     plt.tight_layout()

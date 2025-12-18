@@ -4,6 +4,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, ScrollableContainer
 from textual.coordinate import Coordinate
@@ -140,6 +141,86 @@ class MetadataMismatchDialog(ModalScreen[Optional[dict]]):
             field = action[7:]  # Remove "update-" prefix
             self.field_choices[field] = True
             self.dismiss(self.field_choices)
+
+
+class PDFChooserDialog(ModalScreen[Optional[str]]):
+    """Dialog to choose a PDF file to link to the current paper."""
+
+    BUTTON_PREFIX = "pdf-"
+
+    def __init__(
+        self,
+        pdf_files: list[Path],
+        current_pdf: Optional[str] = None,
+        inbox_dir: Optional[Path] = None,
+    ):
+        """Initialize with list of available PDF files.
+
+        Args:
+            pdf_files: List of PDF file paths
+            current_pdf: Currently linked PDF path (if any)
+            inbox_dir: Path to inbox directory (to identify unmatched PDFs)
+        """
+        super().__init__()
+        self.pdf_files = pdf_files
+        self.current_pdf = current_pdf
+        self.inbox_dir = inbox_dir
+
+    def compose(self) -> ComposeResult:
+        with Container(id="pdf-dialog"):
+            yield Label("[bold #58a6ff]Link PDF to Paper[/bold #58a6ff]\n")
+
+            if self.current_pdf:
+                yield Label(f"[dim]Currently linked:[/dim] {Path(self.current_pdf).name}")
+                yield Button("Clear link", id=f"{self.BUTTON_PREFIX}clear", variant="error")
+                yield Label("")
+
+            if not self.pdf_files:
+                yield Label("[dim]No PDFs in pdfs/ or pdfs/inbox/[/dim]")
+            else:
+                yield Label(f"[dim]Available PDFs ({len(self.pdf_files)}):[/dim]\n")
+
+                # Show scrollable list of PDFs
+                with ScrollableContainer(id="pdf-list"):
+                    for idx, pdf_path in enumerate(self.pdf_files):
+                        name = pdf_path.name
+                        # Check if this is an inbox PDF
+                        is_inbox = self.inbox_dir and pdf_path.parent == self.inbox_dir
+                        # Truncate long names, add inbox indicator
+                        max_len = 50 if is_inbox else 60
+                        display_name = name if len(name) <= max_len else name[:max_len - 3] + "..."
+                        if is_inbox:
+                            display_name = f"[new] {display_name}"
+                        yield Button(
+                            display_name,
+                            id=f"{self.BUTTON_PREFIX}select-{idx}",
+                            variant="primary" if str(pdf_path) == self.current_pdf else "default",
+                        )
+
+            yield Label("")
+            yield Button("Cancel", id=f"{self.BUTTON_PREFIX}cancel", variant="default")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if not button_id or not button_id.startswith(self.BUTTON_PREFIX):
+            return
+
+        event.stop()
+        action = button_id[len(self.BUTTON_PREFIX):]
+
+        if action == "cancel":
+            self.dismiss(None)
+        elif action == "clear":
+            self.dismiss("")  # Empty string means clear the link
+        elif action.startswith("select-"):
+            try:
+                idx = int(action[7:])  # Remove "select-" prefix
+                if 0 <= idx < len(self.pdf_files):
+                    self.dismiss(str(self.pdf_files[idx]))
+                    return
+            except ValueError:
+                pass
+            self.dismiss(None)
 
 
 class SnowballApp(App):
@@ -310,6 +391,33 @@ class SnowballApp(App):
         margin: 0 1;
     }
 
+    /* PDF chooser dialog styling */
+    #pdf-dialog {
+        width: 80;
+        height: auto;
+        max-height: 30;
+        border: thick #58a6ff;
+        background: #161b22;
+        padding: 2;
+    }
+
+    #pdf-dialog Label {
+        color: #c9d1d9;
+    }
+
+    #pdf-dialog Button {
+        margin: 0 1 1 0;
+        width: 100%;
+    }
+
+    #pdf-list {
+        height: auto;
+        max-height: 15;
+        background: #0d1117;
+        border: solid #30363d;
+        padding: 1;
+    }
+
     /* Button styling */
     Button {
         margin: 1;
@@ -374,8 +482,9 @@ class SnowballApp(App):
         Binding("n", "notes", "Notes"),
         Binding("u", "undo", "Undo"),
         # Paper actions
-        Binding("o", "open", "Open DOI/arXiv"),
+        Binding("o", "open", "Open URL/Scholar"),
         Binding("p", "open_pdf", "Open local PDF"),
+        Binding("l", "link_pdf", "Link PDF"),
         Binding("d", "toggle_details", "Toggle details"),
         Binding("e", "enrich", "Enrich metadata"),
         # Project actions
@@ -942,19 +1051,21 @@ class SnowballApp(App):
         self.push_screen(ReviewDialog(self.current_paper), handle_notes)
 
     def action_open(self) -> None:
-        """Open the paper's DOI or arXiv URL in browser."""
+        """Open the paper's DOI, arXiv URL, or search Google Scholar."""
         if not self.current_paper:
             return
 
-        # Prefer DOI, fallback to arXiv
-        url = None
+        # Prefer DOI, then arXiv, fallback to Google Scholar search
         if self.current_paper.doi:
             url = f"https://doi.org/{self.current_paper.doi}"
         elif self.current_paper.arxiv_id:
             url = f"https://arxiv.org/abs/{self.current_paper.arxiv_id}"
+        else:
+            # No identifier - search Google Scholar by title
+            query = quote_plus(self.current_paper.title)
+            url = f"https://scholar.google.com/scholar?q={query}"
 
-        if url:
-            webbrowser.open(url)
+        webbrowser.open(url)
 
     def action_open_pdf(self) -> None:
         """Open the local PDF file if available."""
@@ -969,6 +1080,88 @@ class SnowballApp(App):
                 self.notify(f"PDF file not found: {pdf_path}", severity="error")
         else:
             self.notify("No local PDF for this paper", severity="warning")
+
+    def action_link_pdf(self) -> None:
+        """Link a PDF file to the current paper.
+
+        Shows PDFs from inbox/ (unmatched) first, then pdfs/ (already matched).
+        PDFs linked from inbox are moved to pdfs/ folder.
+        """
+        if not self.current_paper:
+            return
+
+        # Get list of PDFs from both inbox and pdfs folders
+        pdfs_dir = self.project_dir / "pdfs"
+        inbox_dir = pdfs_dir / "inbox"
+        pdfs_dir.mkdir(exist_ok=True)
+        inbox_dir.mkdir(exist_ok=True)
+
+        # Inbox PDFs first (these need linking), then already-matched PDFs
+        inbox_files = sorted(inbox_dir.glob("*.pdf"))
+        matched_files = sorted(pdfs_dir.glob("*.pdf"))
+        pdf_files = inbox_files + matched_files
+
+        def handle_selection(result: Optional[str]) -> None:
+            if result is None:
+                return  # Cancelled
+
+            if result == "":
+                # Clear the link
+                self.current_paper.pdf_path = None
+                self.storage.save_paper(self.current_paper)
+                self._log_event(f"[dim]Unlinked PDF from:[/dim] {self.current_paper.title}")
+                self.notify("PDF link cleared", severity="information")
+                self._show_paper_details(self.current_paper)
+                self._refresh_table()
+            else:
+                import shutil
+                selected_path = Path(result)
+                pdf_name = selected_path.name
+
+                # If PDF is in inbox, move it to pdfs/
+                if selected_path.parent == inbox_dir:
+                    new_path = pdfs_dir / pdf_name
+                    shutil.move(str(selected_path), str(new_path))
+                    final_path = str(new_path)
+                    self._log_event(f"[#58a6ff]Linked & moved:[/#58a6ff] {pdf_name}")
+                else:
+                    final_path = result
+                    self._log_event(f"[#58a6ff]Linked:[/#58a6ff] {pdf_name} → {truncate_title(self.current_paper.title, 40)}")
+
+                # Set the link
+                self.current_paper.pdf_path = final_path
+                self.storage.save_paper(self.current_paper)
+                self.notify(f"Extracting references from PDF...", timeout=60)
+
+                # Store context for worker
+                self._worker_context["link_pdf"] = {
+                    "paper_id": self.current_paper.id,
+                    "pdf_path": final_path,
+                    "pdf_name": pdf_name,
+                }
+
+                def do_parse() -> dict:
+                    """Parse the linked PDF with GROBID in background."""
+                    pdf_parser = PDFParser()
+                    try:
+                        parse_result = pdf_parser.parse(Path(final_path))
+                        return {
+                            "success": True,
+                            "references": parse_result.references if parse_result else [],
+                        }
+                    except Exception as e:
+                        return {"success": False, "error": str(e), "references": []}
+
+                self.run_worker(do_parse, name="link_pdf", thread=True)
+
+                # Refresh display immediately (references will update when worker completes)
+                self._show_paper_details(self.current_paper)
+                self._refresh_table()
+
+        self.push_screen(
+            PDFChooserDialog(pdf_files, self.current_paper.pdf_path, inbox_dir),
+            handle_selection
+        )
 
     def action_snowball(self) -> None:
         """Run a snowball iteration."""
@@ -1097,26 +1290,32 @@ class SnowballApp(App):
             table.move_cursor(row=0)
 
     def action_parse_pdfs(self) -> None:
-        """Scan pdfs/ folder and parse any PDFs, matching to papers by title."""
+        """Scan pdfs/inbox/ folder and parse PDFs, matching to papers by title.
+
+        Matched PDFs are moved from inbox/ to pdfs/ folder.
+        Unmatched PDFs remain in inbox/ for manual linking.
+        """
         pdfs_dir = self.project_dir / "pdfs"
+        inbox_dir = pdfs_dir / "inbox"
 
-        if not pdfs_dir.exists():
-            self.notify("No pdfs/ folder found", severity="warning")
-            return
+        # Create directories if needed
+        pdfs_dir.mkdir(exist_ok=True)
+        inbox_dir.mkdir(exist_ok=True)
 
-        pdf_files = list(pdfs_dir.glob("*.pdf"))
+        pdf_files = list(inbox_dir.glob("*.pdf"))
         if not pdf_files:
-            self.notify("No PDF files in pdfs/ folder", severity="warning")
+            self.notify("No PDFs in pdfs/inbox/ folder", severity="warning")
             return
 
         # Store context
-        self._worker_context["parse_pdfs"] = {"pdf_files": pdf_files}
+        self._worker_context["parse_pdfs"] = {"pdf_files": pdf_files, "pdfs_dir": pdfs_dir}
 
         # Show working notification
-        self.notify(f"Parsing {len(pdf_files)} PDFs...", timeout=60)
+        self.notify(f"Parsing {len(pdf_files)} PDFs from inbox...", timeout=60)
 
         def do_parse() -> dict:
             """Parse PDFs in background thread."""
+            import shutil
             all_papers = self.storage.load_all_papers()
             pdf_parser = PDFParser()
 
@@ -1124,37 +1323,34 @@ class SnowballApp(App):
             no_match = 0
 
             for pdf_path in pdf_files:
-                # Skip if already linked to a paper
-                already_linked = any(
-                    p.pdf_path and Path(p.pdf_path).name == pdf_path.name
-                    for p in all_papers
-                )
-                if already_linked:
-                    continue
-
                 try:
                     result = pdf_parser.parse(pdf_path)
                     if not result.title:
+                        no_match += 1
                         continue
 
                     # Find matching paper by title (fuzzy match)
                     matched_paper = self._find_paper_by_title_fuzzy(all_papers, result.title)
 
                     if matched_paper:
+                        # Move PDF from inbox to pdfs/
+                        new_path = pdfs_dir / pdf_path.name
+                        shutil.move(str(pdf_path), str(new_path))
+
                         # Store references
                         if result.references:
                             if matched_paper.raw_data is None:
                                 matched_paper.raw_data = {}
                             matched_paper.raw_data["grobid_references"] = result.references
 
-                        matched_paper.pdf_path = str(pdf_path)
+                        matched_paper.pdf_path = str(new_path)
                         self.storage.save_paper(matched_paper)
                         processed += 1
                     else:
                         no_match += 1
 
                 except Exception:
-                    pass  # Skip failed parses silently
+                    no_match += 1  # Count failed parses as no match
 
             # Store results in context for handler
             self._worker_context["parse_pdfs"]["processed"] = processed
@@ -1291,6 +1487,54 @@ class SnowballApp(App):
             self._handle_snowball_complete()
         elif worker_name == "parse_pdfs":
             self._handle_parse_pdfs_complete()
+        elif worker_name == "link_pdf":
+            # Store worker result in context for handler
+            if hasattr(event.worker, 'result') and event.worker.result:
+                self._worker_context["link_pdf"]["worker_result"] = event.worker.result
+            self._handle_link_pdf_complete()
+
+    def _handle_link_pdf_complete(self) -> None:
+        """Handle link PDF worker completion - store extracted references."""
+        ctx = self._worker_context.get("link_pdf", {})
+        paper_id = ctx.get("paper_id")
+        pdf_name = ctx.get("pdf_name", "PDF")
+        worker_result = ctx.get("worker_result", {})
+
+        if not paper_id:
+            return
+
+        # Get the paper (may have been updated in the meantime)
+        paper = self.storage.load_paper(paper_id)
+        if not paper:
+            return
+
+        references = worker_result.get("references", [])
+        success = worker_result.get("success", False)
+
+        if success and references:
+            # Store extracted references
+            if paper.raw_data is None:
+                paper.raw_data = {}
+            paper.raw_data["grobid_references"] = references
+            self.storage.save_paper(paper)
+
+            self._log_event(
+                f"[#3fb950]Extracted {len(references)} refs[/#3fb950] from {pdf_name}"
+            )
+            self.notify(f"Extracted {len(references)} references", severity="information")
+        elif success:
+            self._log_event(f"[dim]No references found in {pdf_name}[/dim]")
+            self.notify(f"Linked: {pdf_name} (no references found)", severity="information")
+        else:
+            error = worker_result.get("error", "Unknown error")
+            self._log_event(f"[#f85149]Parse failed:[/#f85149] {error[:50]}")
+            self.notify(f"Linked: {pdf_name} (parse failed)", severity="warning")
+
+        # Refresh details panel if still viewing the same paper
+        if self.current_paper and self.current_paper.id == paper_id:
+            # Reload to get updated references
+            self.current_paper = paper
+            self._show_paper_details(paper)
 
     def _handle_enrich_complete(self) -> None:
         """Handle enrich worker completion."""
@@ -1431,6 +1675,7 @@ class SnowballApp(App):
 [bold]Paper Actions:[/bold]
   o           Open DOI/arXiv in browser
   p           Open local PDF
+  l           Link/unlink PDF to paper
   e           Enrich metadata from APIs
 
 [bold]Table:[/bold]
