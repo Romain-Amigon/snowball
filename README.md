@@ -2,7 +2,7 @@
 
 A terminal-based tool for conducting Systematic Literature Reviews (SLR) using the snowballing methodology.
 
-<img width="800" alt="snowball-tui" src="https://github.com/user-attachments/assets/d4809a60-0275-4d0a-98d1-3c18e0ea2f32" />
+<img width="1770" height="757" alt="snowball-tui" src="https://github.com/user-attachments/assets/ce7b42f7-a0dd-480d-853b-b96ef9907087" />
 
 ## How it works
 
