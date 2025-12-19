@@ -11,6 +11,7 @@ from .crossref import CrossRefClient
 from .openalex import OpenAlexClient
 from .arxiv import ArXivClient
 from .google_scholar import GoogleScholarClient
+from .opencitations import OpenCitationsClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ class APIAggregator:
         if use_apis is None:
             # Note: google_scholar excluded by default due to aggressive rate limiting/IP bans
             # Use --use-scholar flag to explicitly enable it
-            use_apis = ["semantic_scholar", "crossref", "openalex", "arxiv"]
+            use_apis = ["semantic_scholar", "crossref", "openalex", "arxiv", "opencitations"]
 
         self.clients = {}
 
@@ -59,6 +60,10 @@ class APIAggregator:
             self.clients["arxiv"] = ArXivClient()
             logger.info("Initialized arXiv client")
 
+        if "opencitations" in use_apis:
+            self.clients["opencitations"] = OpenCitationsClient()
+            logger.info("Initialized OpenCitations client")
+
         if "google_scholar" in use_apis:
             self.clients["google_scholar"] = GoogleScholarClient(
                 proxy=scholar_proxy,
@@ -69,9 +74,9 @@ class APIAggregator:
     def search_by_doi(self, doi: str) -> Optional[Paper]:
         """Search for a paper by DOI across all APIs.
 
-        Tries APIs in order of preference: Semantic Scholar, OpenAlex, CrossRef.
+        Tries APIs in order of preference: Semantic Scholar, OpenAlex, CrossRef, OpenCitations.
         """
-        for api_name in ["semantic_scholar", "openalex", "crossref"]:
+        for api_name in ["semantic_scholar", "openalex", "crossref", "opencitations"]:
             if api_name in self.clients:
                 try:
                     paper = self.clients[api_name].search_by_doi(doi)
@@ -143,6 +148,16 @@ class APIAggregator:
             except Exception as e:
                 logger.warning(f"Error getting OpenAlex references: {e}")
 
+        # Try OpenCitations (requires DOI)
+        if "opencitations" in self.clients and paper.doi:
+            try:
+                references = self.clients["opencitations"].get_references(paper.doi)
+                if references:
+                    logger.info(f"Found {len(references)} references using OpenCitations")
+                    return references
+            except Exception as e:
+                logger.warning(f"Error getting OpenCitations references: {e}")
+
         logger.warning(f"Could not find references for paper: {paper.title}")
         return []
 
@@ -176,6 +191,16 @@ class APIAggregator:
                     return citations
             except Exception as e:
                 logger.warning(f"Error getting OpenAlex citations: {e}")
+
+        # Try OpenCitations (requires DOI)
+        if "opencitations" in self.clients and paper.doi:
+            try:
+                citations = self.clients["opencitations"].get_citations(paper.doi)
+                if citations:
+                    logger.info(f"Found {len(citations)} citations using OpenCitations")
+                    return citations
+            except Exception as e:
+                logger.warning(f"Error getting OpenCitations citations: {e}")
 
         # Try Google Scholar as fallback (slower, rate-limited)
         if "google_scholar" in self.clients and paper.title:
