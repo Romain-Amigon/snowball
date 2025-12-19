@@ -9,6 +9,8 @@ A terminal-based tool for conducting Systematic Literature Reviews (SLR) using t
 - Start by adding seed papers (via PDF or DOI)
 - Review seed papers for inclusion (just in case)
 - Snowball backwards (via references), forwards (via citations) or both (optionally setting time period)
+  - [Grobid](https://github.com/kermitt2/grobid/) is used to extract references
+  - APIs like [OpenAlex](https://openalex.org/) and [Semantic Scholar](https://www.semanticscholar.org/) are used to find citations
 - Review list of found papers for inclusion or exclusion
   - Simple keyboard shortcut interaction
   - Filter by keyword or review status 
