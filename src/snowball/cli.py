@@ -244,9 +244,12 @@ def review(args) -> None:
     engine = SnowballEngine(storage, api)
 
     # Redirect logging to file to avoid corrupting TUI display
+    # Each session gets its own timestamped log file
+    from datetime import datetime
     logs_dir = project_dir / "logs"
     logs_dir.mkdir(exist_ok=True)
-    log_file = logs_dir / "snowball.log"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"session_{timestamp}.log"
     root_logger = logging.getLogger()
 
     # Remove existing handlers and add file handler
