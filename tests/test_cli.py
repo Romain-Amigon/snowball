@@ -176,9 +176,9 @@ class TestCLIExport:
         args.included_only = False
         
         export_results(args)
-        
-        # Check that BibTeX file was created
-        bib_file = project_with_papers / "all_papers.bib"
+
+        # Check that BibTeX file was created in output/ folder
+        bib_file = project_with_papers / "output" / "all_papers.bib"
         assert bib_file.exists()
 
     def test_export_csv(self, project_with_papers):
@@ -188,11 +188,11 @@ class TestCLIExport:
         args.format = "csv"
         args.output = None
         args.included_only = False
-        
+
         export_results(args)
-        
-        # Check that CSV file was created
-        csv_file = project_with_papers / "all_papers.csv"
+
+        # Check that CSV file was created in output/ folder
+        csv_file = project_with_papers / "output" / "all_papers.csv"
         assert csv_file.exists()
 
     def test_export_all_formats(self, project_with_papers):
@@ -202,11 +202,12 @@ class TestCLIExport:
         args.format = "all"
         args.output = None
         args.included_only = False
-        
+
         export_results(args)
-        
-        assert (project_with_papers / "all_papers.bib").exists()
-        assert (project_with_papers / "all_papers.csv").exists()
+
+        # Files are now in output/ folder
+        assert (project_with_papers / "output" / "all_papers.bib").exists()
+        assert (project_with_papers / "output" / "all_papers.csv").exists()
 
     def test_export_included_only(self, project_with_papers):
         """Test exporting only included papers."""
@@ -215,10 +216,11 @@ class TestCLIExport:
         args.format = "bibtex"
         args.output = None
         args.included_only = True
-        
+
         export_results(args)
-        
-        bib_file = project_with_papers / "included_papers.bib"
+
+        # Files are now in output/ folder
+        bib_file = project_with_papers / "output" / "included_papers.bib"
         assert bib_file.exists()
 
 

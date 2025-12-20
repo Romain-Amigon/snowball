@@ -1220,36 +1220,39 @@ class SnowballApp(App):
         papers = self.storage.load_all_papers()
         included_count = sum(1 for p in papers if p.status == PaperStatus.INCLUDED)
 
+        # Create output directory
+        output_dir = self.project_dir / "output"
+        output_dir.mkdir(exist_ok=True)
+
         # Export BibTeX
         bibtex_exporter = BibTeXExporter()
         bibtex_content = bibtex_exporter.export(papers, only_included=True)
-        bibtex_path = self.project_dir / "export_included.bib"
+        bibtex_path = output_dir / "included_papers.bib"
         with open(bibtex_path, "w") as f:
             f.write(bibtex_content)
 
         # Export CSV
         csv_exporter = CSVExporter()
-        csv_path = self.project_dir / "export_all.csv"
+        csv_path = output_dir / "all_papers.csv"
         csv_exporter.export(papers, csv_path, only_included=False)
 
         # Export TikZ (both embeddable and standalone versions)
         tikz_exporter = TikZExporter()
 
         tikz_content = tikz_exporter.export(papers, only_included=True, standalone=False)
-        tikz_path = self.project_dir / "citation_graph_included.tex"
+        tikz_path = output_dir / "citation_graph.tex"
         with open(tikz_path, "w") as f:
             f.write(tikz_content)
 
         tikz_standalone = tikz_exporter.export(papers, only_included=True, standalone=True)
-        tikz_standalone_path = self.project_dir / "citation_graph_standalone.tex"
+        tikz_standalone_path = output_dir / "citation_graph_standalone.tex"
         with open(tikz_standalone_path, "w") as f:
             f.write(tikz_standalone)
 
         # Export PNG graph
-        viz_dir = self.project_dir / "viz"
         graph_path = generate_citation_graph(
             papers=papers,
-            output_dir=viz_dir,
+            output_dir=output_dir,
             title=self.project.name,
         )
 
@@ -1270,14 +1273,15 @@ class SnowballApp(App):
             self.notify("No papers to visualize", severity="warning")
             return
 
-        # Output to viz/ folder in project directory
-        viz_dir = self.project_dir / "viz"
+        # Output to output/ folder in project directory
+        output_dir = self.project_dir / "output"
+        output_dir.mkdir(exist_ok=True)
 
         self.notify("Generating graph...", title="Please wait")
 
         output_path = generate_citation_graph(
             papers=papers,
-            output_dir=viz_dir,
+            output_dir=output_dir,
             title=f"{self.project.name} - Citation Network",
         )
 

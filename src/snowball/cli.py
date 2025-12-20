@@ -244,7 +244,9 @@ def review(args) -> None:
     engine = SnowballEngine(storage, api)
 
     # Redirect logging to file to avoid corrupting TUI display
-    log_file = project_dir / "snowball.log"
+    logs_dir = project_dir / "logs"
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / "snowball.log"
     root_logger = logging.getLogger()
 
     # Remove existing handlers and add file handler
@@ -283,7 +285,12 @@ def export_results(args) -> None:
         logger.warning("No papers to export")
         return
 
-    output_dir = Path(args.output) if args.output else project_dir
+    # Default to output/ subfolder for tidy organization
+    if args.output:
+        output_dir = Path(args.output)
+    else:
+        output_dir = project_dir / "output"
+    output_dir.mkdir(exist_ok=True)
 
     # Export BibTeX
     if args.format in ["bibtex", "all"]:
