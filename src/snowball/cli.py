@@ -85,6 +85,7 @@ def init_project(args) -> None:
     project = ReviewProject(
         name=args.name or project_dir.name,
         description=args.description or "",
+        research_question=getattr(args, "research_question", None),
     )
 
     # Set up filters if provided
@@ -815,6 +816,98 @@ def parse_pdfs(args) -> None:
         logger.info("\nReferences will be used in the next snowball iteration.")
 
 
+def set_research_question(args) -> None:
+    """Set or update the research question for a project."""
+    project_dir = Path(args.directory)
+
+    if not project_dir.exists():
+        logger.error(f"Project directory {project_dir} does not exist")
+        sys.exit(1)
+
+    storage = JSONStorage(project_dir)
+    project = storage.load_project()
+
+    if not project:
+        logger.error("No project found. Run 'snowball init' first.")
+        sys.exit(1)
+
+    project.research_question = args.question
+    storage.save_project(project)
+
+    logger.info(f"Research question set: {args.question}")
+
+
+def compute_relevance(args) -> None:
+    """Compute relevance scores for papers against the research question."""
+    project_dir = Path(args.directory)
+
+    if not project_dir.exists():
+        logger.error(f"Project directory {project_dir} does not exist")
+        sys.exit(1)
+
+    storage = JSONStorage(project_dir)
+    project = storage.load_project()
+
+    if not project:
+        logger.error("No project found. Run 'snowball init' first.")
+        sys.exit(1)
+
+    if not project.research_question:
+        logger.error("No research question set. Use 'snowball set-rq' or re-init with --research-question")
+        sys.exit(1)
+
+    # Get papers to score
+    papers = storage.load_all_papers()
+
+    if args.status:
+        status_map = {
+            "pending": PaperStatus.PENDING,
+            "included": PaperStatus.INCLUDED,
+            "excluded": PaperStatus.EXCLUDED,
+        }
+        papers = [p for p in papers if p.status == status_map[args.status]]
+
+    if not papers:
+        logger.info("No papers to score")
+        return
+
+    method = args.method
+    logger.info(f"Scoring {len(papers)} papers using {method.upper()} method...")
+
+    # Get scorer
+    from .scoring import get_scorer
+
+    try:
+        scorer_kwargs = {}
+        if method == "llm" and args.model:
+            scorer_kwargs["model"] = args.model
+        scorer = get_scorer(method, **scorer_kwargs)
+    except ImportError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    # Progress callback
+    def progress(current, total):
+        if current % 10 == 0 or current == total:
+            logger.info(f"Progress: {current}/{total}")
+
+    # Score papers
+    results = scorer.score_papers(project.research_question, papers, progress)
+
+    # Save scores
+    updated = 0
+    for paper, score in results:
+        paper.relevance_score = score
+        storage.save_paper(paper)
+        updated += 1
+
+    storage.flush()
+    logger.info(f"Updated relevance scores for {updated} papers")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -830,6 +923,10 @@ def main():
     init_parser.add_argument("--description", help="Project description")
     init_parser.add_argument("--min-year", type=int, help="Minimum publication year")
     init_parser.add_argument("--max-year", type=int, help="Maximum publication year")
+    init_parser.add_argument(
+        "--research-question", "-rq",
+        help="Research question for relevance scoring"
+    )
 
     # Add seed command
     seed_parser = subparsers.add_parser("add-seed", help="Add seed paper(s)")
@@ -1000,6 +1097,35 @@ def main():
     )
     parse_pdfs_parser.add_argument("directory", help="Project directory")
 
+    # Set research question command
+    set_rq_parser = subparsers.add_parser(
+        "set-rq", help="Set or update the research question for relevance scoring"
+    )
+    set_rq_parser.add_argument("directory", help="Project directory")
+    set_rq_parser.add_argument("question", help="Research question text")
+
+    # Compute relevance command
+    relevance_parser = subparsers.add_parser(
+        "compute-relevance", help="Compute relevance scores for papers against the research question"
+    )
+    relevance_parser.add_argument("directory", help="Project directory")
+    relevance_parser.add_argument(
+        "--method",
+        choices=["tfidf", "llm"],
+        default="tfidf",
+        help="Scoring method: tfidf (fast, offline) or llm (OpenAI API, requires OPENAI_API_KEY)"
+    )
+    relevance_parser.add_argument(
+        "--model",
+        default="gpt-4o-mini",
+        help="LLM model to use (default: gpt-4o-mini)"
+    )
+    relevance_parser.add_argument(
+        "--status",
+        choices=["pending", "included", "excluded"],
+        help="Only score papers with this status"
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1029,6 +1155,10 @@ def main():
         update_citations(args)
     elif args.command == "parse-pdfs":
         parse_pdfs(args)
+    elif args.command == "set-rq":
+        set_research_question(args)
+    elif args.command == "compute-relevance":
+        compute_relevance(args)
 
 
 if __name__ == "__main__":

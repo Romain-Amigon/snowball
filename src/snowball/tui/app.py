@@ -224,6 +224,43 @@ class PDFChooserDialog(ModalScreen[Optional[str]]):
             self.dismiss(None)
 
 
+class RelevanceMethodDialog(ModalScreen[Optional[str]]):
+    """Dialog to choose relevance scoring method."""
+
+    BUTTON_PREFIX = "rel-"
+
+    def compose(self) -> ComposeResult:
+        with Container(id="relevance-dialog"):
+            yield Label("[bold #58a6ff]Compute Relevance Scores[/bold #58a6ff]\n")
+            yield Label("[dim]Choose scoring method:[/dim]\n")
+
+            yield Button(
+                "TF-IDF (fast, offline)",
+                id=f"{self.BUTTON_PREFIX}tfidf",
+                variant="primary",
+            )
+            yield Button(
+                "LLM (OpenAI API)",
+                id=f"{self.BUTTON_PREFIX}llm",
+                variant="default",
+            )
+            yield Label("")
+            yield Button("Cancel", id=f"{self.BUTTON_PREFIX}cancel", variant="default")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if not button_id or not button_id.startswith(self.BUTTON_PREFIX):
+            return
+
+        event.stop()
+        action = button_id[len(self.BUTTON_PREFIX):]
+
+        if action == "cancel":
+            self.dismiss(None)
+        elif action in ("tfidf", "llm"):
+            self.dismiss(action)
+
+
 class SnowballApp(App):
     """Main Snowball SLR application."""
 
@@ -240,7 +277,7 @@ class SnowballApp(App):
     /* Stats panel styling */
     #stats-panel {
         height: auto;
-        padding: 1;
+        padding: 0 1;
         border: solid #30363d;
         background: #161b22;
         color: #c9d1d9;
@@ -402,6 +439,23 @@ class SnowballApp(App):
         padding: 2;
     }
 
+    #relevance-dialog {
+        width: 50;
+        height: auto;
+        border: thick #58a6ff;
+        background: #161b22;
+        padding: 2;
+    }
+
+    #relevance-dialog Label {
+        color: #c9d1d9;
+    }
+
+    #relevance-dialog Button {
+        margin: 0 1 1 0;
+        width: 100%;
+    }
+
     #pdf-dialog Label {
         color: #c9d1d9;
     }
@@ -494,6 +548,7 @@ class SnowballApp(App):
         Binding("f", "filter", "Filter papers"),
         Binding("g", "graph", "Generate graph"),
         Binding("P", "parse_pdfs", "Parse PDFs in pdfs/"),
+        Binding("R", "compute_relevance", "Compute relevance"),
         # App actions
         Binding("question_mark", "help", "Show help"),
         Binding("q", "quit", "Quit"),
@@ -599,6 +654,7 @@ class SnowballApp(App):
             self._get_column_label("Status"),
             self._get_column_label("Title"),
             self._get_column_label("Year"),
+            self._get_column_label("Rel"),
             self._get_column_label("Refs"),
             self._get_column_label("Cite"),
             self._get_column_label("Obs"),
@@ -641,6 +697,7 @@ class SnowballApp(App):
             self._get_column_label("Status"),
             self._get_column_label("Title"),
             self._get_column_label("Year"),
+            self._get_column_label("Rel"),
             self._get_column_label("Refs"),
             self._get_column_label("Cite"),
             self._get_column_label("Obs"),
@@ -703,10 +760,23 @@ class SnowballApp(App):
             else:
                 year_display = "-"
 
+            # Relevance score with color coding
+            if paper.relevance_score is not None:
+                score = paper.relevance_score
+                if score >= 0.7:
+                    rel_display = f"[#3fb950]{score:.2f}[/#3fb950]"  # Green for high
+                elif score >= 0.4:
+                    rel_display = f"[#d29922]{score:.2f}[/#d29922]"  # Yellow for medium
+                else:
+                    rel_display = f"[#8b949e]{score:.2f}[/#8b949e]"  # Gray for low
+            else:
+                rel_display = ""
+
             table.add_row(
                 status_display,
                 title,
                 year_display,
+                rel_display,
                 refs_count,
                 citations,
                 obs_count,
@@ -742,7 +812,7 @@ class SnowballApp(App):
         else:
             filter_text = "[bold]Filter:[/bold] All"
 
-        return (
+        stats_line = (
             f"[bold #58a6ff]{self.project.name}[/bold #58a6ff] [dim]│[/dim] "
             f"[bold]Total:[/bold] [#58a6ff]{total}[/#58a6ff] [dim]│[/dim] "
             f"[#3fb950]✓ {included}[/#3fb950] [dim]│[/dim] "
@@ -751,6 +821,16 @@ class SnowballApp(App):
             f"{filter_text} [dim]│[/dim] "
             f"[bold]Iter:[/bold] [#a371f7]{self.project.current_iteration}[/#a371f7]"
         )
+
+        # Add research question on second line if set
+        if self.project.research_question:
+            rq = self.project.research_question
+            # Truncate if too long
+            if len(rq) > 120:
+                rq = rq[:117] + "..."
+            stats_line += f"\n[bold]RQ:[/bold] [dim italic]{rq}[/dim italic]"
+
+        return stats_line
 
     def _format_paper_details(self, paper: Paper) -> str:
         """Format paper details as rich text using shared function."""
@@ -1413,6 +1493,95 @@ class SnowballApp(App):
         else:
             self.notify("No new PDFs to process", severity="information")
 
+    def action_compute_relevance(self) -> None:
+        """Compute relevance scores for pending papers using the research question."""
+        if not self.project.research_question:
+            self.notify(
+                "No research question set. Use 'snowball set-rq' first.",
+                severity="error",
+            )
+            return
+
+        # Get papers to score (pending only by default)
+        papers = [
+            p for p in self.storage.load_all_papers()
+            if p.status == PaperStatus.PENDING
+        ]
+
+        if not papers:
+            self.notify("No pending papers to score", severity="warning")
+            return
+
+        # Show method selection dialog
+        def on_method_selected(method: Optional[str]) -> None:
+            if method is None:
+                return  # Cancelled
+
+            self._run_relevance_scoring(papers, method)
+
+        self.push_screen(RelevanceMethodDialog(), on_method_selected)
+
+    def _run_relevance_scoring(self, papers: list, method: str) -> None:
+        """Run relevance scoring with the selected method."""
+        # Store context
+        self._worker_context["compute_relevance"] = {
+            "total": len(papers),
+            "method": method,
+        }
+
+        method_name = "TF-IDF" if method == "tfidf" else "LLM"
+        self.notify(f"Computing relevance ({method_name}) for {len(papers)} papers...", timeout=120)
+
+        rq = self.project.research_question
+
+        def do_compute() -> dict:
+            """Run relevance computation in background."""
+            from ..scoring import get_scorer
+
+            try:
+                scorer = get_scorer(method)
+            except (ImportError, ValueError) as e:
+                return {"error": str(e), "updated": 0}
+
+            results = scorer.score_papers(rq, papers)
+
+            # Save scores
+            updated = 0
+            for paper, score in results:
+                paper.relevance_score = score
+                self.storage.save_paper(paper)
+                updated += 1
+
+            return {"updated": updated}
+
+        self.run_worker(do_compute, name="compute_relevance", thread=True)
+
+    def _handle_compute_relevance_complete(self) -> None:
+        """Handle relevance computation completion."""
+        ctx = self._worker_context.get("compute_relevance", {})
+        worker_result = ctx.get("worker_result", {})
+        updated = worker_result.get("updated", 0)
+        error = worker_result.get("error")
+        method = ctx.get("method", "tfidf")
+        method_name = "TF-IDF" if method == "tfidf" else "LLM"
+
+        self._refresh_table()
+
+        if error:
+            self.notify(
+                f"Scoring failed: {error}",
+                title="Relevance error",
+                severity="error",
+            )
+            self._log_event(f"[#f85149]Relevance error:[/#f85149] {error}")
+        else:
+            self.notify(
+                f"Computed relevance for {updated} papers",
+                title="Relevance complete",
+                severity="information",
+            )
+            self._log_event(f"[#58a6ff]Relevance ({method_name}):[/#58a6ff] scored {updated} papers")
+
     def _find_paper_by_title_fuzzy(self, papers: list, title: str, threshold: float = 0.8):
         """Find a paper by fuzzy title match."""
         if not title:
@@ -1528,6 +1697,10 @@ class SnowballApp(App):
             if hasattr(event.worker, 'result') and event.worker.result:
                 self._worker_context["link_pdf"]["worker_result"] = event.worker.result
             self._handle_link_pdf_complete()
+        elif worker_name == "compute_relevance":
+            if hasattr(event.worker, 'result') and event.worker.result:
+                self._worker_context["compute_relevance"]["worker_result"] = event.worker.result
+            self._handle_compute_relevance_complete()
 
     def _handle_link_pdf_complete(self) -> None:
         """Handle link PDF worker completion - store extracted references."""

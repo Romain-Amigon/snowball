@@ -62,6 +62,7 @@ class Paper(BaseModel):
     # Metrics
     citation_count: Optional[int] = None
     influential_citation_count: Optional[int] = None
+    relevance_score: Optional[float] = Field(None, description="Relevance to research question (0.0-1.0)")
 
     # References
     references: List[str] = Field(default_factory=list, description="IDs of referenced papers")
@@ -129,6 +130,7 @@ class ReviewProject(BaseModel):
     """Represents an SLR project."""
     name: str
     description: str = ""
+    research_question: Optional[str] = Field(None, description="Research question for relevance scoring")
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 

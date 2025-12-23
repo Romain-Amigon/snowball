@@ -21,13 +21,14 @@ class TestCLIHelpers:
     def test_init_project_creates_directory(self, temp_dir):
         """Test that init_project creates the project directory."""
         project_dir = temp_dir / "new_project"
-        
+
         args = Mock()
         args.directory = str(project_dir)
         args.name = "Test Project"
         args.description = "Test description"
         args.min_year = 2020
         args.max_year = 2024
+        args.research_question = None
 
         init_project(args)
 
@@ -45,6 +46,7 @@ class TestCLIHelpers:
         args.description = ""
         args.min_year = None
         args.max_year = None
+        args.research_question = None
 
         with pytest.raises(SystemExit):
             init_project(args)
@@ -59,6 +61,7 @@ class TestCLIHelpers:
         args.description = None
         args.min_year = None
         args.max_year = None
+        args.research_question = None
 
         init_project(args)
         

@@ -145,6 +145,11 @@ def get_sort_key(paper: Paper, column: str):
             return (1, 0)
         return (0, paper.citation_count)
 
+    elif column == "Rel":
+        if paper.relevance_score is None:
+            return (1, 0)
+        return (0, paper.relevance_score)
+
     elif column == "Refs":
         # GROBID references count
         grobid_refs = paper.raw_data.get("grobid_references", []) if paper.raw_data else []
