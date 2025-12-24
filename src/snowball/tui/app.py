@@ -18,6 +18,7 @@ from textual.widgets import (
     TextArea,
     Select,
     Input,
+    Checkbox,
 )
 from textual.binding import Binding
 from textual.screen import ModalScreen
@@ -605,7 +606,8 @@ class SnowballApp(App):
         yield Header()
         with Horizontal(id="stats-panel"):
             yield Static(self._get_stats_text(), id="stats-text")
-            yield Input(placeholder="Filter titles...", id="filter-input")
+            yield Input(placeholder="Search...", id="filter-input")
+            yield Checkbox("Search Abstracts", value=False, id="filter-abstract-checkbox")
         yield DataTable(id="papers-table", cursor_type="row")
 
         # Bottom section with details (left) and log (right)
@@ -715,7 +717,14 @@ class SnowballApp(App):
         # Apply keyword filter if set
         if self.filter_keyword:
             keyword_lower = self.filter_keyword.lower()
-            papers = [p for p in papers if keyword_lower in p.title.lower()]
+            
+            search_in_abstract = self.query_one("#filter-abstract-checkbox", Checkbox).value
+
+            papers = [
+                p for p in papers 
+                if keyword_lower in p.title.lower() 
+                or (search_in_abstract and p.abstract and keyword_lower in p.abstract.lower())
+            ]
 
         # Sort papers using current sort settings
         papers.sort(key=self._get_sort_key, reverse=not self.sort_ascending)
@@ -998,6 +1007,10 @@ class SnowballApp(App):
 
             # Debounce: wait 100ms before refreshing table
             self._filter_timer = self.set_timer(0.1, self._apply_filter)
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        """Handle abstract filter toggle."""
+        if event.checkbox.id == "filter-abstract-checkbox":
+            self._refresh_table()
 
     def _apply_filter(self) -> None:
         """Apply the current filter (called after debounce delay)."""
