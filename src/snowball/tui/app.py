@@ -1120,7 +1120,6 @@ class SnowballApp(App):
         status_label = status_labels.get(previous_status, previous_status.value)
         remaining = len(self._last_status_change)
         self._log_event(f"[dim]Undo ({remaining} left):[/dim] {title} → {status_label}")
-        self._log_event(f"[dim]Undo:[/dim] {title} → {status_label}")
 
 
         # Refresh display
